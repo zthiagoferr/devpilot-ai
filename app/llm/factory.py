@@ -7,6 +7,9 @@ from app.llm.opencode_provider import OpenCodeProvider
 
 def create_llm_provider(settings: Settings) -> LLMProvider:
     """Create the configured LLM provider."""
+    api_key = settings.llm_api_key
+    if hasattr(api_key, "get_secret_value"):
+        api_key = api_key.get_secret_value()
 
     if settings.llm_provider == "fake":
         return FakeLLMProvider(
@@ -20,7 +23,7 @@ def create_llm_provider(settings: Settings) -> LLMProvider:
             )
 
         return OpenAIProvider(
-            api_key=settings.llm_api_key,
+            api_key=api_key,
             model=settings.llm_model,
         )
 
@@ -31,7 +34,7 @@ def create_llm_provider(settings: Settings) -> LLMProvider:
             )
 
         return OpenCodeProvider(
-            api_key=settings.llm_api_key,
+            api_key=api_key,
             model=settings.llm_model,
         )
 
