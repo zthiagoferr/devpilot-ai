@@ -1,8 +1,23 @@
+from typing import Any
+
 import pytest
+
 from app.agents.insights_agent import InsightsAgent
 from app.llm.fake import FakeLLMProvider
 from app.services.llm_service import LLMService
 from app.agents.orchestrator import OrchestratorAgent
+
+
+class StubDevelopmentAgent:
+    """Deterministic DevelopmentAgent replacement for orchestrator tests."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append(context.copy())
+        return self.result.copy()
 
 
 @pytest.mark.asyncio
@@ -65,6 +80,7 @@ async def test_orchestrator_rejects_missing_task() -> None:
     assert result["status"] == "error"
     assert result["message"] == "Task was not provided."
 
+
 @pytest.mark.asyncio
 async def test_orchestrator_delegates_test_analysis() -> None:
     orchestrator = OrchestratorAgent()
@@ -73,10 +89,7 @@ async def test_orchestrator_delegates_test_analysis() -> None:
         {
             "task": "tests",
             "project_name": "devpilot-ai",
-            "source_code": (
-                "def test_health():\n"
-                "    assert True\n"
-            ),
+            "source_code": "def test_health():\n    assert True\n",
         }
     )
 
@@ -85,6 +98,7 @@ async def test_orchestrator_delegates_test_analysis() -> None:
     assert result["delegated_to"] == "test_agent"
     assert result["result"]["agent"] == "test_agent"
     assert result["result"]["score"] == 100
+
 
 @pytest.mark.asyncio
 async def test_orchestrator_delegates_docs_analysis() -> None:
@@ -108,6 +122,7 @@ async def test_orchestrator_delegates_docs_analysis() -> None:
     assert result["result"]["agent"] == "docs_agent"
     assert result["result"]["score"] == 100
 
+
 @pytest.mark.asyncio
 async def test_orchestrator_runs_full_analysis() -> None:
     orchestrator = OrchestratorAgent()
@@ -126,7 +141,6 @@ async def test_orchestrator_runs_full_analysis() -> None:
 
     assert result["agent"] == "orchestrator"
     assert result["status"] == "completed"
-
     assert result["delegated_to"] == [
         "code_agent",
         "test_agent",
@@ -140,10 +154,10 @@ async def test_orchestrator_runs_full_analysis() -> None:
     assert report["project_name"] == "devpilot-ai"
     assert report["overall_score"] == 100
     assert report["total_issues"] == 0
-
     assert "code" in report["analyses"]
     assert "tests" in report["analyses"]
     assert "docs" in report["analyses"]
+
 
 @pytest.mark.asyncio
 async def test_orchestrator_runs_full_analysis_with_insights() -> None:
@@ -154,9 +168,7 @@ async def test_orchestrator_runs_full_analysis_with_insights() -> None:
     service = LLMService(provider)
     insights_agent = InsightsAgent(service)
 
-    orchestrator = OrchestratorAgent(
-        insights_agent=insights_agent,
-    )
+    orchestrator = OrchestratorAgent(insights_agent=insights_agent)
 
     result = await orchestrator.execute(
         {
@@ -171,7 +183,6 @@ async def test_orchestrator_runs_full_analysis_with_insights() -> None:
     )
 
     assert result["status"] == "completed"
-
     assert result["delegated_to"] == [
         "code_agent",
         "test_agent",
@@ -179,7 +190,6 @@ async def test_orchestrator_runs_full_analysis_with_insights() -> None:
         "report_agent",
         "insights",
     ]
-
     assert "report" in result["result"]
     assert "insights" in result["result"]
 
@@ -188,10 +198,97 @@ async def test_orchestrator_runs_full_analysis_with_insights() -> None:
     assert insights["agent"] == "insights"
     assert insights["status"] == "completed"
     assert insights["model"] == "fake-model"
-    assert (
-        insights["recommendations"]
-        == "Improve test coverage and documentation."
-    )
-
+    assert insights["recommendations"] == "Improve test coverage and documentation."
     assert provider.last_prompt is not None
     assert "devpilot-ai" in provider.last_prompt
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_successfully_delegates_multi_file_develop() -> None:
+    development_result = {
+        "agent": "development_agent",
+        "status": "completed",
+        "completed_tasks": [
+            {"file_path": "src/one.py", "task": "Create one."},
+            {"file_path": "src/two.py", "task": "Create two."},
+        ],
+    }
+    development_agent = StubDevelopmentAgent(development_result)
+    orchestrator = OrchestratorAgent(development_agent=development_agent)
+    context = {
+        "task": "multi_file_develop",
+        "project_name": "devpilot-ai",
+        "development_goal": "Create two modules.",
+        "file_tasks": [
+            {"file_path": "src/one.py", "task": "Create one."},
+            {"file_path": "src/two.py", "task": "Create two."},
+        ],
+    }
+
+    result = await orchestrator.execute(context)
+
+    assert result["agent"] == "orchestrator"
+    assert result["status"] == "completed"
+    assert result["delegated_to"] == "development_agent"
+    assert result["result"] == development_result
+    assert development_agent.calls == [
+        {
+            "development_goal": context["development_goal"],
+            "file_tasks": context["file_tasks"],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_propagates_multi_file_develop_failure() -> None:
+    development_result = {
+        "agent": "development_agent",
+        "status": "failed",
+        "message": "coding failed",
+        "completed_tasks": [],
+    }
+    development_agent = StubDevelopmentAgent(development_result)
+    orchestrator = OrchestratorAgent(development_agent=development_agent)
+
+    result = await orchestrator.execute(
+        {
+            "task": "multi_file_develop",
+            "development_goal": "Update the application.",
+            "file_tasks": [{"file_path": "app.py", "task": "Update app."}],
+        }
+    )
+
+    assert result["agent"] == "orchestrator"
+    assert result["status"] == "failed"
+    assert result["delegated_to"] == "development_agent"
+    assert result["result"] == development_result
+    assert len(development_agent.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "context",
+    [
+        {
+            "task": "multi_file_develop",
+            "file_tasks": [{"file_path": "app.py", "task": "Create app."}],
+        },
+        {
+            "task": "multi_file_develop",
+            "development_goal": "Create the application.",
+        },
+    ],
+)
+async def test_orchestrator_rejects_multi_file_develop_missing_required_context(
+    context: dict[str, Any],
+) -> None:
+    development_agent = StubDevelopmentAgent(
+        {"agent": "development_agent", "status": "completed"}
+    )
+    orchestrator = OrchestratorAgent(development_agent=development_agent)
+
+    result = await orchestrator.execute(context)
+
+    assert result["agent"] == "orchestrator"
+    assert result["status"] == "error"
+    assert development_agent.calls == []

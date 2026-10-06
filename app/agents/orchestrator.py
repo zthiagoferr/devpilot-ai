@@ -3,6 +3,7 @@ from typing import Any
 from app.agents.base import BaseAgent
 from app.agents.code_agent import CodeAgent
 from app.agents.coding_agent import CodingAgent
+from app.agents.development_agent import DevelopmentAgent
 from app.agents.docs_agent import DocsAgent
 from app.agents.insights_agent import InsightsAgent
 from app.agents.report_agent import ReportAgent
@@ -16,6 +17,7 @@ class OrchestratorAgent(BaseAgent):
         self,
         insights_agent: InsightsAgent | None = None,
         coding_agent: CodingAgent | None = None,
+        development_agent: DevelopmentAgent | None = None,
     ) -> None:
         super().__init__(
             name="orchestrator",
@@ -31,6 +33,7 @@ class OrchestratorAgent(BaseAgent):
         self._report_agent = ReportAgent()
         self._insights_agent = insights_agent
         self._coding_agent = coding_agent
+        self._development_agent = development_agent or DevelopmentAgent()
 
     async def execute(
         self,
@@ -47,6 +50,9 @@ class OrchestratorAgent(BaseAgent):
 
         if task == "develop":
             return await self._execute_development(context)
+
+        if task == "multi_file_develop":
+            return await self._execute_multi_file_development(context)
 
         if task == "full_analysis":
             return await self._execute_full_analysis(context)
@@ -108,6 +114,41 @@ class OrchestratorAgent(BaseAgent):
             "agent": self.name,
             "status": result["status"],
             "delegated_to": self._coding_agent.name,
+            "result": result,
+        }
+
+    async def _execute_multi_file_development(
+        self,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        development_goal = context.get("development_goal")
+        file_tasks = context.get("file_tasks")
+
+        if not development_goal:
+            return {
+                "agent": self.name,
+                "status": "error",
+                "message": "Development goal was not provided.",
+            }
+
+        if not file_tasks:
+            return {
+                "agent": self.name,
+                "status": "error",
+                "message": "File tasks were not provided.",
+            }
+
+        result = await self._development_agent.execute(
+            {
+                "development_goal": development_goal,
+                "file_tasks": file_tasks,
+            }
+        )
+
+        return {
+            "agent": self.name,
+            "status": result["status"],
+            "delegated_to": "development_agent",
             "result": result,
         }
 
