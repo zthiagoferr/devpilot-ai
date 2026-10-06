@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -12,19 +14,6 @@ class CodeAnalysisRequest(BaseModel):
     )
 
 
-class CodeIssue(BaseModel):
-    severity: str
-    message: str
-    line: int | None = None
-
-
-class CodeAnalysisResult(BaseModel):
-    agent: str
-    project_name: str
-    score: int
-    issues: list[CodeIssue]
-    summary: str
-
 class AnalysisRequest(BaseModel):
     task: str = Field(
         min_length=1,
@@ -38,3 +27,31 @@ class AnalysisRequest(BaseModel):
         min_length=1,
         description="Python source code to analyze.",
     )
+
+
+class AnalysisIssue(BaseModel):
+    severity: str
+    message: str
+    line: int | None = None
+
+
+class CodeAnalysisResult(BaseModel):
+    agent: str
+    project_name: str
+    score: int
+    issues: list[AnalysisIssue]
+    summary: str
+
+
+class OrchestratorStatus(BaseModel):
+    agent: str
+    responsibility: str
+    status: str
+
+
+class OrchestratorResponse(BaseModel):
+    agent: str
+    status: str
+    delegated_to: str | list[str] | None = None
+    result: dict[str, Any] | None = None
+    message: str | None = None

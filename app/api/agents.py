@@ -1,8 +1,14 @@
-from fastapi import APIRouter
-from app.agents.orchestrator import OrchestratorAgent
+from fastapi import APIRouter, HTTPException
+
 from app.agents.code_agent import CodeAgent
-from app.schemas.analysis import CodeAnalysisRequest, CodeAnalysisResult
-from app.schemas.analysis import AnalysisRequest
+from app.agents.orchestrator import OrchestratorAgent
+from app.schemas.analysis import (
+    AnalysisRequest,
+    CodeAnalysisRequest,
+    CodeAnalysisResult,
+    OrchestratorResponse,
+    OrchestratorStatus,
+)
 
 
 router = APIRouter(
@@ -11,18 +17,24 @@ router = APIRouter(
 )
 
 
-@router.get("/orchestrator")
-async def orchestrator_status() -> dict:
+@router.get(
+    "/orchestrator",
+    response_model=OrchestratorStatus,
+)
+async def orchestrator_status() -> OrchestratorStatus:
     orchestrator = OrchestratorAgent()
 
-    return await orchestrator.execute(
-        {
-            "project": "devpilot-ai",
-            "action": "initialize",
-        }
+    return OrchestratorStatus(
+        agent=orchestrator.name,
+        responsibility=orchestrator.responsibility,
+        status="ready",
     )
 
-@router.post("/code", response_model=CodeAnalysisResult)
+
+@router.post(
+    "/code",
+    response_model=CodeAnalysisResult,
+)
 async def analyze_code(
     request: CodeAnalysisRequest,
 ) -> CodeAnalysisResult:
@@ -37,14 +49,28 @@ async def analyze_code(
 
     return CodeAnalysisResult(**result)
 
-@router.post("/orchestrate")
-async def orchestrate_analysis(request: AnalysisRequest) -> dict:
+
+@router.post(
+    "/orchestrate",
+    response_model=OrchestratorResponse,
+)
+async def orchestrate_analysis(
+    request: AnalysisRequest,
+) -> OrchestratorResponse:
     orchestrator = OrchestratorAgent()
 
-    return await orchestrator.execute(
+    result = await orchestrator.execute(
         {
             "task": request.task,
             "project_name": request.project_name,
             "source_code": request.source_code,
         }
     )
+
+    if result["status"] == "error":
+        raise HTTPException(
+            status_code=400,
+            detail=result["message"],
+        )
+
+    return OrchestratorResponse(**result)
