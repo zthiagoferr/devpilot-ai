@@ -1,5 +1,5 @@
 from typing import Any
-
+from app.agents.docs_agent import DocsAgent
 from app.agents.base import BaseAgent
 from app.agents.code_agent import CodeAgent
 from app.agents.test_agent import TestAgent
@@ -15,9 +15,11 @@ class OrchestratorAgent(BaseAgent):
         )
 
         self._agents: dict[str, BaseAgent] = {
-            "code": CodeAgent(),
-            "tests": TestAgent(),
-        }
+         "code": CodeAgent(),
+         "tests": TestAgent(),
+         "docs": DocsAgent(),
+}
+       
 
     async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         task = context.get("task")
