@@ -2,6 +2,7 @@ from typing import Any
 
 from app.agents.base import BaseAgent
 from app.agents.code_agent import CodeAgent
+from app.agents.test_agent import TestAgent
 
 
 class OrchestratorAgent(BaseAgent):
@@ -15,6 +16,7 @@ class OrchestratorAgent(BaseAgent):
 
         self._agents: dict[str, BaseAgent] = {
             "code": CodeAgent(),
+            "tests": TestAgent(),
         }
 
     async def execute(self, context: dict[str, Any]) -> dict[str, Any]:

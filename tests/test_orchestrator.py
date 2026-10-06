@@ -62,3 +62,24 @@ async def test_orchestrator_rejects_missing_task() -> None:
     assert result["agent"] == "orchestrator"
     assert result["status"] == "error"
     assert result["message"] == "Task was not provided."
+
+@pytest.mark.asyncio
+async def test_orchestrator_delegates_test_analysis() -> None:
+    orchestrator = OrchestratorAgent()
+
+    result = await orchestrator.execute(
+        {
+            "task": "tests",
+            "project_name": "devpilot-ai",
+            "source_code": (
+                "def test_health():\n"
+                "    assert True\n"
+            ),
+        }
+    )
+
+    assert result["agent"] == "orchestrator"
+    assert result["status"] == "completed"
+    assert result["delegated_to"] == "test_agent"
+    assert result["result"]["agent"] == "test_agent"
+    assert result["result"]["score"] == 100
