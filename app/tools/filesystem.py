@@ -1,3 +1,4 @@
+from os import walk
 from pathlib import Path
 from typing import Any
 
@@ -5,6 +6,10 @@ from app.tools.base import BaseTool
 
 
 _SENSITIVE_PATH_NAMES = {".env", ".git", ".venv"}
+_LIST_EXCLUDED_DIRECTORY_NAMES = _SENSITIVE_PATH_NAMES | {
+    "__pycache__",
+    ".pytest_cache",
+}
 
 
 def _resolve_project_path(
@@ -22,6 +27,54 @@ def _resolve_project_path(
         return None, "Access to sensitive project paths is not allowed."
 
     return target, None
+
+
+class ListFilesTool(BaseTool):
+    """Lists safe regular files located inside the project directory."""
+
+    def __init__(self, project_root: Path) -> None:
+        super().__init__(
+            name="list_files",
+            description="List safe regular files in the project.",
+        )
+        self._project_root = project_root.resolve()
+
+    async def execute(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        files: list[str] = []
+
+        for directory, dirnames, filenames in walk(
+            self._project_root,
+            topdown=True,
+            followlinks=False,
+        ):
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if name.casefold() not in _LIST_EXCLUDED_DIRECTORY_NAMES
+            ]
+
+            directory_path = Path(directory)
+            for filename in filenames:
+                candidate = directory_path / filename
+                target, error = _resolve_project_path(
+                    self._project_root,
+                    candidate,
+                )
+                if error or target is None or not target.is_file():
+                    continue
+
+                relative_path = target.relative_to(self._project_root).as_posix()
+                if relative_path not in files:
+                    files.append(relative_path)
+
+        files.sort()
+        return {
+            "status": "completed",
+            "files": files,
+        }
 
 
 class ReadFileTool(BaseTool):
