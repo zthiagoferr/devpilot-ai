@@ -1,6 +1,12 @@
 from fastapi import FastAPI
 
 from app.api.agents import router as agents_router
+from app.api.analysis import router as analysis_router
+
+try:
+    from app.api.github import router as github_router
+except ModuleNotFoundError:
+    github_router = None
 
 
 app = FastAPI(
@@ -10,6 +16,10 @@ app = FastAPI(
 )
 
 app.include_router(agents_router)
+app.include_router(analysis_router)
+
+if github_router is not None:
+    app.include_router(github_router)
 
 
 @app.get("/", tags=["System"])
