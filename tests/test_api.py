@@ -15,7 +15,7 @@ def test_orchestrator_status() -> None:
 
     assert data == {
         "agent": "orchestrator",
-        "responsibility": "Coordinate and route analysis tasks.",
+        "responsibility": "Coordinate and route tasks to specialized agents.",
         "status": "ready",
     }
 
