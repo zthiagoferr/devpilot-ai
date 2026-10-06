@@ -67,7 +67,7 @@ def test_orchestrate_full_analysis() -> None:
         "report_agent",
     ]
 
-    report = data["result"]
+    report = data["result"]["report"]
 
     assert report["agent"] == "report_agent"
     assert report["overall_score"] == 100

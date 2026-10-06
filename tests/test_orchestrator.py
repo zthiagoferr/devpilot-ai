@@ -1,5 +1,7 @@
 import pytest
-
+from app.agents.insights_agent import InsightsAgent
+from app.llm.fake import FakeLLMProvider
+from app.services.llm_service import LLMService
 from app.agents.orchestrator import OrchestratorAgent
 
 
@@ -132,7 +134,7 @@ async def test_orchestrator_runs_full_analysis() -> None:
         "report_agent",
     ]
 
-    report = result["result"]
+    report = result["result"]["report"]
 
     assert report["agent"] == "report_agent"
     assert report["project_name"] == "devpilot-ai"
@@ -142,3 +144,54 @@ async def test_orchestrator_runs_full_analysis() -> None:
     assert "code" in report["analyses"]
     assert "tests" in report["analyses"]
     assert "docs" in report["analyses"]
+
+@pytest.mark.asyncio
+async def test_orchestrator_runs_full_analysis_with_insights() -> None:
+    provider = FakeLLMProvider(
+        response="Improve test coverage and documentation.",
+        model="fake-model",
+    )
+    service = LLMService(provider)
+    insights_agent = InsightsAgent(service)
+
+    orchestrator = OrchestratorAgent(
+        insights_agent=insights_agent,
+    )
+
+    result = await orchestrator.execute(
+        {
+            "task": "full_analysis",
+            "project_name": "devpilot-ai",
+            "source_code": (
+                "def test_health():\n"
+                '    """Test application health."""\n'
+                "    assert True\n"
+            ),
+        }
+    )
+
+    assert result["status"] == "completed"
+
+    assert result["delegated_to"] == [
+        "code_agent",
+        "test_agent",
+        "docs_agent",
+        "report_agent",
+        "insights",
+    ]
+
+    assert "report" in result["result"]
+    assert "insights" in result["result"]
+
+    insights = result["result"]["insights"]
+
+    assert insights["agent"] == "insights"
+    assert insights["status"] == "completed"
+    assert insights["model"] == "fake-model"
+    assert (
+        insights["recommendations"]
+        == "Improve test coverage and documentation."
+    )
+
+    assert provider.last_prompt is not None
+    assert "devpilot-ai" in provider.last_prompt

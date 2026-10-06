@@ -3,6 +3,7 @@ from typing import Any
 from app.agents.base import BaseAgent
 from app.agents.code_agent import CodeAgent
 from app.agents.docs_agent import DocsAgent
+from app.agents.insights_agent import InsightsAgent
 from app.agents.report_agent import ReportAgent
 from app.agents.test_agent import TestAgent
 
@@ -10,7 +11,10 @@ from app.agents.test_agent import TestAgent
 class OrchestratorAgent(BaseAgent):
     """Coordinates specialized agents without performing their analysis."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        insights_agent: InsightsAgent | None = None,
+    ) -> None:
         super().__init__(
             name="orchestrator",
             responsibility="Coordinate and route analysis tasks.",
@@ -23,8 +27,12 @@ class OrchestratorAgent(BaseAgent):
         }
 
         self._report_agent = ReportAgent()
+        self._insights_agent = insights_agent
 
-    async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
+    async def execute(
+        self,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
         task = context.get("task")
 
         if not task:
@@ -48,16 +56,32 @@ class OrchestratorAgent(BaseAgent):
                 }
             )
 
+            delegated_to = [
+                self._agents["code"].name,
+                self._agents["tests"].name,
+                self._agents["docs"].name,
+                self._report_agent.name,
+            ]
+
+            result: dict[str, Any] = {
+                "report": report,
+            }
+
+            if self._insights_agent is not None:
+                insights = await self._insights_agent.execute(
+                    {
+                        "report": report,
+                    }
+                )
+
+                delegated_to.append(self._insights_agent.name)
+                result["insights"] = insights
+
             return {
                 "agent": self.name,
                 "status": "completed",
-                "delegated_to": [
-                    self._agents["code"].name,
-                    self._agents["tests"].name,
-                    self._agents["docs"].name,
-                    self._report_agent.name,
-                ],
-                "result": report,
+                "delegated_to": delegated_to,
+                "result": result,
             }
 
         selected_agent = self._agents.get(task)
