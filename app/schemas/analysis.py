@@ -24,3 +24,17 @@ class CodeAnalysisResult(BaseModel):
     score: int
     issues: list[CodeIssue]
     summary: str
+
+class AnalysisRequest(BaseModel):
+    task: str = Field(
+        min_length=1,
+        description="Type of analysis that should be performed.",
+    )
+    project_name: str = Field(
+        min_length=1,
+        description="Name of the project being analyzed.",
+    )
+    source_code: str = Field(
+        min_length=1,
+        description="Python source code to analyze.",
+    )

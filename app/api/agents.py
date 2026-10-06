@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from app.agents.orchestrator import OrchestratorAgent
 from app.agents.code_agent import CodeAgent
 from app.schemas.analysis import CodeAnalysisRequest, CodeAnalysisResult
+from app.schemas.analysis import AnalysisRequest
 
 
 router = APIRouter(
@@ -35,3 +36,15 @@ async def analyze_code(
     )
 
     return CodeAnalysisResult(**result)
+
+@router.post("/orchestrate")
+async def orchestrate_analysis(request: AnalysisRequest) -> dict:
+    orchestrator = OrchestratorAgent()
+
+    return await orchestrator.execute(
+        {
+            "task": request.task,
+            "project_name": request.project_name,
+            "source_code": request.source_code,
+        }
+    )
