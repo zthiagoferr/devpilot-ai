@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -31,6 +32,21 @@ class SequentialFakeLLMProvider(LLMProvider):
             content=response,
             model="fake-model",
         )
+
+
+def _repository_context(prompt: str) -> str:
+    marker = "Relevant repository context"
+    assert marker in prompt
+    return prompt.split(marker, 1)[1]
+
+
+def _context_file_contents(context: str) -> list[str]:
+    matches = re.findall(
+        r"(?:^|\n)File: [^\n]+\n(.*?)(?=\nFile: |\Z)",
+        context,
+        flags=re.DOTALL,
+    )
+    return matches
 
 
 @pytest.mark.asyncio
@@ -295,3 +311,181 @@ async def test_coding_agent_removes_new_file_after_all_attempts_fail(
     assert result["attempts"] == 2
     assert provider.call_count == 2
     assert not target.exists()
+
+
+@pytest.mark.asyncio
+async def test_coding_agent_includes_relevant_safe_repository_files_in_prompt(
+    tmp_path,
+) -> None:
+    target = tmp_path / "example.py"
+    target.write_text(
+        "from helper import increment\n\n"
+        "def calculate(value):\n"
+        "    return increment(value)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "helper.py").write_text(
+        "def increment(value):\n"
+        "    return value + 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text(
+        "The example module uses helper.increment.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_example.py").write_text(
+        "from example import calculate\n\n"
+        "def test_calculate():\n"
+        "    assert calculate(1) == 2\n",
+        encoding="utf-8",
+    )
+
+    provider = FakeLLMProvider(
+        response=json.dumps({"content": target.read_text(encoding="utf-8")}),
+        model="fake-model",
+    )
+    agent = CodingAgent(
+        llm_service=LLMService(provider),
+        project_root=tmp_path,
+    )
+
+    await agent.execute({"task": "Improve calculate.", "file_path": "example.py"})
+
+    assert provider.last_prompt is not None
+    assert "File: helper.py" in provider.last_prompt
+    assert "def increment(value):" in provider.last_prompt
+    assert "The example module uses helper.increment." in provider.last_prompt
+
+
+@pytest.mark.asyncio
+async def test_coding_agent_does_not_duplicate_target_in_repository_context(
+    tmp_path,
+) -> None:
+    target_content = (
+        "TARGET_UNIQUE_CONTENT = 'only in the target section'\n"
+    )
+    target = tmp_path / "example.py"
+    target.write_text(target_content, encoding="utf-8")
+    (tmp_path / "test_example.py").write_text(
+        "def test_placeholder():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    provider = FakeLLMProvider(
+        response=json.dumps({"content": target_content}),
+        model="fake-model",
+    )
+    agent = CodingAgent(
+        llm_service=LLMService(provider),
+        project_root=tmp_path,
+    )
+
+    await agent.execute({"task": "Review the file.", "file_path": "example.py"})
+
+    assert provider.last_prompt is not None
+    context = _repository_context(provider.last_prompt)
+    assert "File: example.py" not in context
+    assert target_content not in context
+
+
+@pytest.mark.asyncio
+async def test_coding_agent_never_includes_sensitive_env_content(
+    tmp_path,
+) -> None:
+    secret = "TEST_ONLY_FAKE_SECRET_DO_NOT_INCLUDE"
+    (tmp_path / ".env").write_text(
+        f"API_KEY={secret}\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "example.py"
+    target.write_text("def value():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "test_example.py").write_text(
+        "from example import value\n\n"
+        "def test_value():\n"
+        "    assert value() == 1\n",
+        encoding="utf-8",
+    )
+
+    provider = FakeLLMProvider(
+        response=json.dumps({"content": target.read_text(encoding="utf-8")}),
+        model="fake-model",
+    )
+    agent = CodingAgent(
+        llm_service=LLMService(provider),
+        project_root=tmp_path,
+    )
+
+    await agent.execute({"task": "Inspect the project.", "file_path": "example.py"})
+
+    assert provider.last_prompt is not None
+    assert secret not in provider.last_prompt
+    assert "API_KEY=" not in provider.last_prompt
+
+
+@pytest.mark.asyncio
+async def test_coding_agent_limits_repository_context_to_eight_related_files(
+    tmp_path,
+) -> None:
+    target = tmp_path / "example.py"
+    target.write_text("def value():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "test_example.py").write_text(
+        "from example import value\n\n"
+        "def test_value():\n"
+        "    assert value() == 1\n",
+        encoding="utf-8",
+    )
+    for index in range(12):
+        (tmp_path / f"related_{index}.py").write_text(
+            f"RELATED_FILE_{index} = {index}\n",
+            encoding="utf-8",
+        )
+
+    provider = FakeLLMProvider(
+        response=json.dumps({"content": target.read_text(encoding="utf-8")}),
+        model="fake-model",
+    )
+    agent = CodingAgent(
+        llm_service=LLMService(provider),
+        project_root=tmp_path,
+    )
+
+    await agent.execute({"task": "Inspect related code.", "file_path": "example.py"})
+
+    assert provider.last_prompt is not None
+    context = _repository_context(provider.last_prompt)
+    assert len(re.findall(r"(?:^|\n)File: [^\n]+", context)) <= 8
+
+
+@pytest.mark.asyncio
+async def test_coding_agent_bounds_related_repository_content_to_twelve_thousand_chars(
+    tmp_path,
+) -> None:
+    target = tmp_path / "example.py"
+    target.write_text("def value():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "test_example.py").write_text(
+        "from example import value\n\n"
+        "def test_value():\n"
+        "    assert value() == 1\n",
+        encoding="utf-8",
+    )
+    for index in range(10):
+        (tmp_path / f"large_related_{index}.py").write_text(
+            (f"RELATED_{index}_" + "x" * 1990) + "\n",
+            encoding="utf-8",
+        )
+
+    provider = FakeLLMProvider(
+        response=json.dumps({"content": target.read_text(encoding="utf-8")}),
+        model="fake-model",
+    )
+    agent = CodingAgent(
+        llm_service=LLMService(provider),
+        project_root=tmp_path,
+    )
+
+    await agent.execute({"task": "Inspect large related files.", "file_path": "example.py"})
+
+    assert provider.last_prompt is not None
+    contents = _context_file_contents(_repository_context(provider.last_prompt))
+    assert sum(len(content) for content in contents) <= 12000
