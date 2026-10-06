@@ -1,7 +1,9 @@
 from typing import Any
-from app.agents.docs_agent import DocsAgent
+
 from app.agents.base import BaseAgent
 from app.agents.code_agent import CodeAgent
+from app.agents.docs_agent import DocsAgent
+from app.agents.report_agent import ReportAgent
 from app.agents.test_agent import TestAgent
 
 
@@ -15,11 +17,12 @@ class OrchestratorAgent(BaseAgent):
         )
 
         self._agents: dict[str, BaseAgent] = {
-         "code": CodeAgent(),
-         "tests": TestAgent(),
-         "docs": DocsAgent(),
-}
-       
+            "code": CodeAgent(),
+            "tests": TestAgent(),
+            "docs": DocsAgent(),
+        }
+
+        self._report_agent = ReportAgent()
 
     async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         task = context.get("task")
@@ -29,6 +32,32 @@ class OrchestratorAgent(BaseAgent):
                 "agent": self.name,
                 "status": "error",
                 "message": "Task was not provided.",
+            }
+
+        if task == "full_analysis":
+            analyses: dict[str, Any] = {}
+
+            for agent_task in ("code", "tests", "docs"):
+                agent = self._agents[agent_task]
+                analyses[agent_task] = await agent.execute(context)
+
+            report = await self._report_agent.execute(
+                {
+                    "project_name": context["project_name"],
+                    "analyses": analyses,
+                }
+            )
+
+            return {
+                "agent": self.name,
+                "status": "completed",
+                "delegated_to": [
+                    self._agents["code"].name,
+                    self._agents["tests"].name,
+                    self._agents["docs"].name,
+                    self._report_agent.name,
+                ],
+                "result": report,
             }
 
         selected_agent = self._agents.get(task)

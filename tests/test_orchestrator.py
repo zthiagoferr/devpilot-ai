@@ -105,3 +105,40 @@ async def test_orchestrator_delegates_docs_analysis() -> None:
     assert result["delegated_to"] == "docs_agent"
     assert result["result"]["agent"] == "docs_agent"
     assert result["result"]["score"] == 100
+
+@pytest.mark.asyncio
+async def test_orchestrator_runs_full_analysis() -> None:
+    orchestrator = OrchestratorAgent()
+
+    result = await orchestrator.execute(
+        {
+            "task": "full_analysis",
+            "project_name": "devpilot-ai",
+            "source_code": (
+                "def test_health():\n"
+                '    """Test application health."""\n'
+                "    assert True\n"
+            ),
+        }
+    )
+
+    assert result["agent"] == "orchestrator"
+    assert result["status"] == "completed"
+
+    assert result["delegated_to"] == [
+        "code_agent",
+        "test_agent",
+        "docs_agent",
+        "report_agent",
+    ]
+
+    report = result["result"]
+
+    assert report["agent"] == "report_agent"
+    assert report["project_name"] == "devpilot-ai"
+    assert report["overall_score"] == 100
+    assert report["total_issues"] == 0
+
+    assert "code" in report["analyses"]
+    assert "tests" in report["analyses"]
+    assert "docs" in report["analyses"]
