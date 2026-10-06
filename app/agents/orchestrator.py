@@ -6,6 +6,7 @@ from app.agents.coding_agent import CodingAgent
 from app.agents.development_agent import DevelopmentAgent
 from app.agents.docs_agent import DocsAgent
 from app.agents.insights_agent import InsightsAgent
+from app.agents.planning_agent import PlanningAgent
 from app.agents.report_agent import ReportAgent
 from app.agents.test_agent import TestAgent
 
@@ -18,6 +19,7 @@ class OrchestratorAgent(BaseAgent):
         insights_agent: InsightsAgent | None = None,
         coding_agent: CodingAgent | None = None,
         development_agent: DevelopmentAgent | None = None,
+        planning_agent: PlanningAgent | None = None,
     ) -> None:
         super().__init__(
             name="orchestrator",
@@ -33,7 +35,12 @@ class OrchestratorAgent(BaseAgent):
         self._report_agent = ReportAgent()
         self._insights_agent = insights_agent
         self._coding_agent = coding_agent
-        self._development_agent = development_agent or DevelopmentAgent()
+        self._planning_agent = planning_agent
+        self._development_agent = development_agent
+
+    @staticmethod
+    def _agent_name(agent: Any, fallback: str) -> str:
+        return str(getattr(agent, "name", fallback))
 
     async def execute(
         self,
@@ -53,6 +60,9 @@ class OrchestratorAgent(BaseAgent):
 
         if task == "multi_file_develop":
             return await self._execute_multi_file_development(context)
+
+        if task == "autonomous_develop":
+            return await self._execute_autonomous_development(context)
 
         if task == "full_analysis":
             return await self._execute_full_analysis(context)
@@ -138,6 +148,13 @@ class OrchestratorAgent(BaseAgent):
                 "message": "File tasks were not provided.",
             }
 
+        if self._development_agent is None:
+            return {
+                "agent": self.name,
+                "status": "error",
+                "message": "Development agent is not configured.",
+            }
+
         result = await self._development_agent.execute(
             {
                 "development_goal": development_goal,
@@ -148,8 +165,104 @@ class OrchestratorAgent(BaseAgent):
         return {
             "agent": self.name,
             "status": result["status"],
-            "delegated_to": "development_agent",
+            "delegated_to": self._agent_name(
+                self._development_agent, "development_agent"
+            ),
             "result": result,
+        }
+
+    async def _execute_autonomous_development(
+        self,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        development_goal = context.get("development_goal")
+        delegated_agents: list[str] = []
+
+        if not development_goal:
+            return {
+                "agent": self.name,
+                "status": "error",
+                "message": "Development goal was not provided.",
+                "planning_result": None,
+                "development_result": None,
+                "delegated_agents": delegated_agents,
+                "delegated_to": delegated_agents,
+            }
+
+        if self._planning_agent is None:
+            return {
+                "agent": self.name,
+                "status": "error",
+                "message": "Planning agent is not configured.",
+                "planning_result": None,
+                "development_result": None,
+                "delegated_agents": delegated_agents,
+                "delegated_to": "planning_agent",
+            }
+
+        planning_agent_name = self._agent_name(
+            self._planning_agent, "planning_agent"
+        )
+        delegated_agents.append(planning_agent_name)
+
+        planning_result = await self._planning_agent.execute(
+            {
+                "development_goal": development_goal,
+            }
+        )
+        planning_status = planning_result.get("status", "failed")
+
+        if planning_status != "completed":
+            return {
+                "agent": self.name,
+                "status": planning_status,
+                "planning_result": planning_result,
+                "development_result": None,
+                "delegated_agents": delegated_agents,
+                "delegated_to": "planning_agent",
+            }
+
+        file_tasks = planning_result.get("file_tasks")
+        if not file_tasks:
+            return {
+                "agent": self.name,
+                "status": "failed",
+                "message": "Planning did not provide validated file tasks.",
+                "planning_result": planning_result,
+                "development_result": None,
+                "delegated_agents": delegated_agents,
+                "delegated_to": "planning_agent",
+            }
+
+        if self._development_agent is None:
+            return {
+                "agent": self.name,
+                "status": "error",
+                "message": "Development agent is not configured.",
+                "planning_result": planning_result,
+                "development_result": None,
+                "delegated_agents": delegated_agents,
+                "delegated_to": "planning_agent",
+            }
+
+        development_agent_name = self._agent_name(
+            self._development_agent, "development_agent"
+        )
+        development_result = await self._development_agent.execute(
+            {
+                "development_goal": development_goal,
+                "file_tasks": file_tasks,
+            }
+        )
+        delegated_agents.append(development_agent_name)
+
+        return {
+            "agent": self.name,
+            "status": development_result.get("status", "failed"),
+            "planning_result": planning_result,
+            "development_result": development_result,
+            "delegated_agents": delegated_agents,
+            "delegated_to": ["planning_agent", "development_agent"],
         }
 
     async def _execute_full_analysis(
