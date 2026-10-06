@@ -4,6 +4,26 @@ from typing import Any
 from app.tools.base import BaseTool
 
 
+_SENSITIVE_PATH_NAMES = {".env", ".git", ".venv"}
+
+
+def _resolve_project_path(
+    project_root: Path,
+    file_path: str | Path,
+) -> tuple[Path | None, str | None]:
+    """Resolve a path and enforce project and sensitive-path boundaries."""
+    target = (project_root / Path(file_path)).resolve()
+
+    if not target.is_relative_to(project_root):
+        return None, "Access outside the project is not allowed."
+
+    relative_parts = target.relative_to(project_root).parts
+    if any(part.casefold() in _SENSITIVE_PATH_NAMES for part in relative_parts):
+        return None, "Access to sensitive project paths is not allowed."
+
+    return target, None
+
+
 class ReadFileTool(BaseTool):
     """Reads files located inside the project directory."""
 
@@ -26,12 +46,11 @@ class ReadFileTool(BaseTool):
                 "message": "File path was not provided.",
             }
 
-        target = (self._project_root / file_path).resolve()
-
-        if not target.is_relative_to(self._project_root):
+        target, error = _resolve_project_path(self._project_root, file_path)
+        if error:
             return {
                 "status": "error",
-                "message": "Access outside the project is not allowed.",
+                "message": error,
             }
 
         if not target.is_file():
@@ -76,12 +95,11 @@ class WriteFileTool(BaseTool):
                 "message": "File content was not provided.",
             }
 
-        target = (self._project_root / file_path).resolve()
-
-        if not target.is_relative_to(self._project_root):
+        target, error = _resolve_project_path(self._project_root, file_path)
+        if error:
             return {
                 "status": "error",
-                "message": "Access outside the project is not allowed.",
+                "message": error,
             }
 
         target.parent.mkdir(
