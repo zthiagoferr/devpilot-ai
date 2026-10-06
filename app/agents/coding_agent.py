@@ -23,6 +23,7 @@ class CodingAgent(BaseAgent):
         )
 
         self._llm_service = llm_service
+        self._project_root = project_root
         self._read_file = ReadFileTool(project_root)
         self._write_file = WriteFileTool(project_root)
         self._run_tests = RunTestsTool(project_root)
@@ -53,9 +54,12 @@ class CodingAgent(BaseAgent):
             path=file_path,
         )
 
-        if file_result["status"] == "completed":
-            current_content = file_result["content"]
+        original_exists = file_result["status"] == "completed"
+        if original_exists:
+            original_content = file_result["content"]
+            current_content = original_content
         else:
+            original_content = ""
             current_content = ""
 
         test_output = ""
@@ -121,6 +125,12 @@ class CodingAgent(BaseAgent):
                 + test_result["stderr"]
             )
 
+        await self._restore_original_file(
+            file_path=file_path,
+            existed=original_exists,
+            content=original_content,
+        )
+
         return {
             "agent": self.name,
             "status": "tests_failed",
@@ -128,6 +138,24 @@ class CodingAgent(BaseAgent):
             "attempts": self._max_attempts,
             "tests": test_result,
         }
+
+    async def _restore_original_file(
+        self,
+        *,
+        file_path: str,
+        existed: bool,
+        content: str,
+    ) -> None:
+        if existed:
+            await self._write_file.execute(
+                path=file_path,
+                content=content,
+            )
+            return
+
+        target_path = self._project_root / file_path
+        if target_path.exists() or target_path.is_symlink():
+            target_path.unlink()
 
     def _build_prompt(
         self,
