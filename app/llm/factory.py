@@ -2,6 +2,7 @@ from app.core.config import Settings
 from app.llm.base import LLMProvider
 from app.llm.fake import FakeLLMProvider
 from app.llm.openai_provider import OpenAIProvider
+from app.llm.opencode_provider import OpenCodeProvider
 
 
 def create_llm_provider(settings: Settings) -> LLMProvider:
@@ -19,6 +20,17 @@ def create_llm_provider(settings: Settings) -> LLMProvider:
             )
 
         return OpenAIProvider(
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+        )
+
+    if settings.llm_provider == "opencode":
+        if not settings.llm_api_key:
+            raise ValueError(
+                "LLM_API_KEY is required when LLM_PROVIDER=opencode."
+            )
+
+        return OpenCodeProvider(
             api_key=settings.llm_api_key,
             model=settings.llm_model,
         )

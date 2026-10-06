@@ -1,5 +1,5 @@
 import pytest
-
+from app.llm.opencode_provider import OpenCodeProvider
 from app.core.config import Settings
 from app.llm.fake import FakeLLMProvider
 from app.llm.factory import create_llm_provider
@@ -56,5 +56,31 @@ def test_factory_rejects_unknown_provider() -> None:
     with pytest.raises(
         ValueError,
         match="Unsupported LLM provider",
+    ):
+        create_llm_provider(settings)
+def test_factory_creates_opencode_provider() -> None:
+    settings = Settings(
+        llm_provider="opencode",
+        llm_model="gpt-5.6-luna",
+        llm_api_key="test-key",
+        _env_file=None,
+    )
+
+    provider = create_llm_provider(settings)
+
+    assert isinstance(provider, OpenCodeProvider)
+
+
+def test_factory_rejects_opencode_without_api_key() -> None:
+    settings = Settings(
+        llm_provider="opencode",
+        llm_model="gpt-5.6-luna",
+        llm_api_key=None,
+        _env_file=None,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="LLM_API_KEY is required",
     ):
         create_llm_provider(settings)
