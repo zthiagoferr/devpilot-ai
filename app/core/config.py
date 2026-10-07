@@ -21,6 +21,7 @@ class _ComparableSecretStr(SecretStr):
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
+    environment: str = "development"
     llm_provider: str = "fake"
     llm_model: str = "fake-model"
     llm_api_key: _ComparableSecretStr | None = None
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
         extra="ignore",
         hide_input_in_errors=True,
     )
+
+    @property
+    def is_production(self) -> bool:
+        """Return whether the application is configured for production."""
+        return self.environment.strip().lower() == "production"
 
     def get_database_url(self) -> str | None:
         """Return the database URL for internal database initialization only.

@@ -1,0 +1,82 @@
+# Git and GitHub metadata
+.git/
+.github/
+.gitignore
+.gitattributes
+.gitmodules
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+*.env
+*.secret
+*.secrets
+secrets/
+credentials/
+*.pem
+*.key
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.tox/
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# Test and coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+
+# IDE and editor files
+.idea/
+.vscode/
+.fleet/
+*.iml
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs
+*.log
+logs/
+.log/
+
+# Temporary files
+.tmp/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Operating-system metadata
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
+ehthumbs.db
