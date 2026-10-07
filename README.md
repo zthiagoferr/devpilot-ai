@@ -8,6 +8,8 @@ English | [Português](README.pt-BR.md)
 
 DevPilot discovers a GitHub repository, builds an analysis context, and coordinates specialized agents to produce a structured result. Version 3 adds persistent analysis history through an asynchronous SQLAlchemy persistence layer and HTTP endpoints for creating and retrieving analyses.
 
+Version 4 adds a browser dashboard at [`/dashboard`](http://localhost:8000/dashboard). The dashboard provides a local user interface for submitting analysis input, viewing results, browsing persisted analysis history, and using the repository-discovery workflow. It uses the same application services and HTTP API as the programmatic clients; it does not replace the API or add capabilities that are not supported by the backend.
+
 ## GitHub repository discovery
 
 DevPilot uses a provider abstraction for GitHub access. Application code depends on the provider interface rather than directly on a particular HTTP library, keeping repository discovery replaceable and straightforward to test.
@@ -88,18 +90,82 @@ The V3 API provides persistent analysis history:
 
 The exact request and response schemas are exposed by the application's generated OpenAPI documentation. When running the development server, use its `/docs` endpoint to inspect the current contract.
 
+## V4 Dashboard
+
+### Local startup and use
+
+Install the project and development dependencies as described in [Installation and setup](#installation-and-setup), configure the required settings, and start the ASGI application:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Open [http://localhost:8000/dashboard](http://localhost:8000/dashboard) in a browser. The API documentation remains available at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+For a useful local setup, SQLite avoids requiring a separate database server:
+
+```bash
+export DATABASE_URL="sqlite+aiosqlite:///./devpilot.db"
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+The dashboard is served by the running FastAPI application. Keep that process running while using the page; changing frontend files and restarting or reloading the development server may be necessary when adding or editing local assets.
+
+### Workflows exposed by the UI
+
+The dashboard exposes the application workflows that are supported by the current backend:
+
+- **Analysis:** submit the project information and source or analysis input through the dashboard, then view the returned multi-agent analysis and report.
+- **History:** view previously persisted analyses and open an individual record when the persistence configuration and API are available. History is backed by the V3 `/analyses` endpoints, so it is not a browser-only cache.
+- **GitHub:** use the repository-discovery input to request metadata and the recursive file tree for a repository through the configured GitHub provider. The provider's authentication, default-branch, endpoint, malformed-response, and tree-size behavior still applies.
+
+The dashboard does not imply support for downloading arbitrary repository contents, inspecting other branches or historical revisions, user authentication, or features not implemented by the API. Use `/docs` and the source code as the authoritative contract for request fields, response shapes, limits, and errors.
+
+### Dashboard architecture
+
+The dashboard is a thin presentation layer over the existing application boundaries:
+
+- FastAPI serves the `/dashboard` HTML document and local static CSS and JavaScript assets.
+- Browser code manages form interaction, requests, loading and error states, and rendering of API responses.
+- API routes validate requests and delegate analysis, GitHub discovery, and history operations to the corresponding services.
+- The agent orchestration layer coordinates the specialized analyzers.
+- The persistence layer stores and retrieves completed analyses when configured.
+- The GitHub provider performs external repository requests behind its provider interface.
+
+The browser is not a substitute for the service layer and should not be treated as a trusted execution environment. Business rules, validation, provider access, persistence, and secret handling remain server-side.
+
+### Local static assets
+
+The dashboard references CSS and JavaScript files served from this application rather than loading frontend assets from a CDN or another origin. This keeps the default development page usable without external asset hosts and makes the asset behavior testable in the FastAPI test client.
+
+When changing dashboard assets, preserve same-origin, root-relative URLs and ensure that FastAPI continues to serve them with the appropriate CSS or JavaScript content type. Do not put API keys, database URLs, GitHub tokens, or other deployment configuration into HTML, CSS, JavaScript, data attributes, or browser storage.
+
+### Accessibility and responsiveness
+
+The dashboard is intended to remain usable across desktop and narrow viewport sizes. Its markup should retain semantic headings, labels, forms, buttons, and text areas; controls should be keyboard reachable and have clear visible focus states; status, loading, error, and result messages should be understandable without relying only on color. Responsive layout changes should not hide required controls or force horizontal scrolling on ordinary mobile widths.
+
+These are UI requirements rather than a claim of complete accessibility certification. Verify behavior with keyboard navigation, a screen reader where practical, zoom or larger text, and a narrow viewport when making dashboard changes.
+
+### Dashboard security boundaries
+
+The dashboard is a client of the backend, not a place to expose configuration. Server-side environment variables and settings must never be rendered into the page or returned solely for display. In particular, `LLM_API_KEY`, `DATABASE_URL`, `GITHUB_TOKEN`, and equivalent secrets must remain on the server.
+
+The browser can submit data to the endpoints made available by the application, so deployments should apply their own network controls, authentication, rate limiting, and HTTPS policy when those are required. The dashboard itself does not claim to provide user authentication or authorization. Treat submitted source code, repository identifiers, and analysis results as potentially sensitive, and avoid logging them unnecessarily.
+
 ## Architecture
 
 The project is organized around clear application boundaries:
 
-- **API layer** — HTTP routes for analysis execution and analysis history.
+- **API layer** — HTTP routes for analysis execution, analysis history, and the dashboard entry point.
 - **Core configuration** — validated settings and environment-variable integration.
 - **Agents** — specialized asynchronous analyzers coordinated by the analysis workflow.
 - **Tools** — reusable capabilities such as repository discovery and test execution.
 - **GitHub providers** — an interface and an asynchronous `httpx` implementation for repository access.
 - **Persistence** — SQLAlchemy models, asynchronous database configuration, and the analysis repository.
 - **Migrations** — Alembic revisions for database schema changes.
-- **Tests** — unit and asynchronous integration coverage, including an SQLite/`aiosqlite` persistence fixture.
+- **Dashboard** — a browser-facing HTML interface with local static assets over the existing API and services.
+- **Tests** — unit and asynchronous integration coverage, including an SQLite/`aiosqlite` persistence fixture and dashboard asset/HTML checks.
 
 A typical repository layout is:
 
@@ -111,8 +177,9 @@ app/
   persistence/
   providers/
   tools/
-alembic/
+  static/
 tests/
+alembic/
 README.md
 README.pt-BR.md
 ```
@@ -125,7 +192,7 @@ Create and activate a virtual environment, then install the project and developm
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\activate
+source .venv/bin/activate       # Windows: .venv\\Scripts\\activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
@@ -176,14 +243,19 @@ The repository also supports:
 pytest
 ```
 
+Dashboard tests request `/dashboard`, verify semantic content, confirm that configuration values and secrets are not rendered, and check that referenced CSS and JavaScript assets are local and served by FastAPI. When changing dashboard markup or assets, run the complete suite and manually check the workflows at `/dashboard` in a browser.
+
 Persistence tests use an in-memory SQLite database with `aiosqlite` when the asynchronous SQLAlchemy dependencies are available. The HTTP GitHub provider accepts an injected `httpx.AsyncClient`, allowing tests and callers to provide a custom transport without making real network requests.
 
 ## Status and roadmap
 
 - **V1/V2:** GitHub repository discovery, provider abstraction, default-branch handling, recursive tree discovery, authentication, configurable API endpoints, and defensive response validation are available.
 - **V3:** Persistent analysis history, asynchronous SQLAlchemy persistence, Alembic migrations, PostgreSQL/`asyncpg` production support, SQLite/`aiosqlite` test support, and the analysis history endpoints are available.
+- **V4:** The local `/dashboard` interface, same-origin static assets, and UI access to the supported analysis, history, and GitHub discovery workflows are available.
 - **Future work:** Large-repository discovery improvements, including pagination or alternate tree traversal, remain roadmap items. The current provider intentionally rejects truncated GitHub tree responses and does not inspect additional branches or historical revisions.
 
 ## Security
 
 Never commit tokens, passwords, API keys, or personal credentials to this repository. Supply secrets through environment variables, deployment secrets, or the application's external configuration mechanism. Keep local secret files out of version control, rotate any exposed credential, and avoid printing provider objects, request headers, or exception details that could disclose secrets.
+
+The dashboard follows the same boundary: it may display server responses needed for an analysis workflow, but it must not expose server configuration or credentials. Deployments that need access control must provide it at the appropriate network or application boundary; the current dashboard documentation does not claim built-in authentication.

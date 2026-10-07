@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="DevPilot AI code analysis dashboard">
+  <title>Dashboard | DevPilot AI</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/dashboard.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <div class="app-shell">
+    <header class="site-header">
+      <div class="brand-lockup">
+        <a class="brand" href="/" aria-label="DevPilot AI home">
+          <span class="brand-mark" aria-hidden="true">✦</span>
+          <span>DevPilot <strong>AI</strong></span>
+        </a>
+        <span class="environment-label">Workspace</span>
+      </div>
+
+      <nav class="primary-nav" aria-label="Primary navigation">
+        <a class="nav-link is-active" href="#overview" aria-current="page">Overview</a>
+        <a class="nav-link" href="#new-analysis">New analysis</a>
+        <a class="nav-link" href="#history">History</a>
+      </nav>
+
+      <div class="header-actions">
+        <button class="icon-button" type="button" data-action="refresh" aria-label="Refresh dashboard" title="Refresh dashboard">↻</button>
+        <span class="connection-status" data-connection-status><span class="status-dot" aria-hidden="true"></span>Connected</span>
+      </div>
+    </header>
+
+    <main id="main-content" class="page-content">
+      <section id="overview" class="page-intro" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Developer workspace</p>
+          <h1 id="page-title">System overview</h1>
+          <p class="intro-copy">Analyze code with clear, actionable feedback from DevPilot AI.</p>
+        </div>
+        <a class="button button-primary" href="#new-analysis">Start an analysis <span aria-hidden="true">→</span></a>
+      </section>
+
+      <section class="metrics-grid" aria-label="Analysis summary">
+        <article class="metric-card">
+          <div class="metric-icon metric-icon-blue" aria-hidden="true">⌁</div>
+          <div><p class="metric-label">Total analyses</p><p class="metric-value" data-stat="total-analyses">—</p><p class="metric-caption">All completed reviews</p></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon metric-icon-green" aria-hidden="true">✓</div>
+          <div><p class="metric-label">Average score</p><p class="metric-value" data-stat="average-score">—</p><p class="metric-caption">Across your analyses</p></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon metric-icon-purple" aria-hidden="true">◷</div>
+          <div><p class="metric-label">Last analysis</p><p class="metric-value metric-value-small" data-stat="last-analysis">—</p><p class="metric-caption" data-stat="last-analysis-caption">No analysis yet</p></div>
+        </article>
+      </section>
+
+      <div class="dashboard-grid">
+        <section id="new-analysis" class="panel analysis-panel" aria-labelledby="analysis-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Code review workflow</p>
+              <h2 id="analysis-title">Start a new analysis</h2>
+            </div>
+            <span class="step-indicator" data-step-indicator>Step 1 of 1</span>
+          </div>
+
+          <div class="source-tabs" role="tablist" aria-label="Choose a code source">
+            <button class="source-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="source-code-panel" data-source-tab="code">Paste code</button>
+            <button class="source-tab" type="button" role="tab" aria-selected="false" aria-controls="source-github-panel" data-source-tab="github">GitHub repository</button>
+          </div>
+
+          <div id="source-code-panel" class="source-panel is-active" role="tabpanel" data-source-panel="code">
+            <form id="code-analysis-form" data-analysis-form novalidate>
+              <div class="field-group">
+                <label for="project-name">Project name <span class="required">*</span></label>
+                <input id="project-name" name="project_name" type="text" required maxlength="120" placeholder="e.g. payments-service" autocomplete="off">
+                <p class="field-help">Give this analysis a recognizable name.</p>
+              </div>
+              <div class="field-group">
+                <label for="source-code">Source code <span class="required">*</span></label>
+                <textarea id="source-code" name="source_code" required rows="13" placeholder="Paste the Python code you want to review…" spellcheck="false"></textarea>
+                <p class="field-help">DevPilot analyzes the code you provide. Do not include passwords, tokens, or other secrets.</p>
+              </div>
+              <div class="form-actions">
+                <button class="button button-primary" type="submit" data-submit-analysis>Analyze code <span aria-hidden="true">→</span></button>
+                <button class="button button-secondary" type="reset">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <div id="source-github-panel" class="source-panel" role="tabpanel" data-source-panel="github" hidden>
+            <form id="github-analysis-form" data-github-form novalidate>
+              <div class="field-group">
+                <label for="repository">Repository <span class="required">*</span></label>
+                <input id="repository" name="repository" type="text" required placeholder="owner/repository" autocomplete="off" spellcheck="false">
+                <p class="field-help">Enter a public GitHub repository as <strong>owner/repository</strong>.</p>
+              </div>
+              <div class="field-group">
+                <label for="branch">Branch <span class="optional">(optional)</span></label>
+                <input id="branch" name="branch" type="text" placeholder="Default branch" autocomplete="off" spellcheck="false">
+              </div>
+              <div class="field-group">
+                <label for="repository-file">File to analyze <span class="required">*</span></label>
+                <select id="repository-file" name="file_path" required disabled>
+                  <option value="">Enter a repository to load files</option>
+                </select>
+                <p class="field-help">Only files returned by the repository are available for analysis.</p>
+              </div>
+              <div class="form-actions">
+                <button class="button button-secondary" type="button" data-load-repository>Load repository files</button>
+                <button class="button button-primary" type="submit" data-submit-github disabled>Analyze repository file <span aria-hidden="true">→</span></button>
+              </div>
+            </form>
+          </div>
+
+          <div class="inline-status" data-analysis-status role="status" aria-live="polite" hidden></div>
+          <div class="state state-loading" data-state="loading" hidden aria-live="polite"><span class="spinner" aria-hidden="true"></span><div><strong>Analysis in progress</strong><p>Reviewing your code. This may take a moment.</p></div></div>
+          <div class="state state-success" data-state="success" hidden role="status"><span class="state-symbol" aria-hidden="true">✓</span><div><strong>Analysis complete</strong><p>Your results are ready to review.</p><a href="#analysis-detail" data-view-result>View results</a></div></div>
+          <div class="state state-error" data-state="error" hidden role="alert"><span class="state-symbol" aria-hidden="true">!</span><div><strong>We couldn't complete the analysis</strong><p data-error-message>Please check your input and try again.</p><button class="text-button" type="button" data-dismiss-state>Dismiss</button></div></div>
+        </section>
+
+        <aside class="panel workflow-panel" aria-labelledby="workflow-title">
+          <p class="eyebrow">How it works</p>
+          <h2 id="workflow-title">From code to clarity</h2>
+          <ol class="workflow-list">
+            <li><span class="workflow-number">1</span><div><strong>Choose a source</strong><p>Paste code or select a file from GitHub.</p></div></li>
+            <li><span class="workflow-number">2</span><div><strong>Run the review</strong><p>DevPilot checks your code and identifies issues.</p></div></li>
+            <li><span class="workflow-number">3</span><div><strong>Improve with confidence</strong><p>Use the findings to make your next change better.</p></div></li>
+          </ol>
+          <div class="privacy-note"><span aria-hidden="true">▣</span><p><strong>Keep your code safe</strong><br>Never paste credentials or sensitive data into an analysis.</p></div>
+        </aside>
+      </div>
+
+      <section id="analysis-detail" class="panel detail-panel" aria-labelledby="detail-title" data-detail-section hidden>
+        <div class="panel-heading">
+          <div><p class="eyebrow">Analysis detail</p><h2 id="detail-title" data-detail-name>Analysis results</h2><p class="panel-subtitle" data-detail-meta></p></div>
+          <button class="button button-secondary" type="button" data-close-detail>Back to history</button>
+        </div>
+        <div class="result-summary" data-result-summary></div>
+        <div class="issues-list" data-issues-list aria-live="polite"></div>
+      </section>
+
+      <section id="history" class="panel history-panel" aria-labelledby="history-title">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Your workspace</p><h2 id="history-title">Analysis history</h2></div>
+          <button class="text-button" type="button" data-action="refresh-history">Refresh history</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption class="visually-hidden">Previous code analyses</caption>
+            <thead><tr><th scope="col">Project</th><th scope="col">Source</th><th scope="col">Score</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody data-history-list></tbody>
+          </table>
+        </div>
+        <div class="state state-empty" data-history-empty hidden><span class="empty-icon" aria-hidden="true">⌁</span><h3>No analyses yet</h3><p>Run your first analysis to see results and history here.</p><a class="button button-primary" href="#new-analysis">Start an analysis</a></div>
+        <div class="state state-loading" data-history-loading hidden aria-live="polite"><span class="spinner" aria-hidden="true"></span><p>Loading analysis history…</p></div>
+        <div class="state state-error" data-history-error hidden role="alert"><strong>History is unavailable</strong><p data-history-error-message>Try refreshing the page.</p><button class="button button-secondary" type="button" data-action="refresh-history">Try again</button></div>
+      </section>
+    </main>
+
+    <footer class="site-footer"><span>DevPilot AI</span><span aria-hidden="true">·</span><span>Code analysis for thoughtful teams</span></footer>
+  </div>
+</body>
+</html>

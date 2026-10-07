@@ -170,12 +170,14 @@ class FakeAnalysisService:
             ),
         ]
         self.requested_limits: list[int] = []
+        self.created_requests: list[dict[str, Any]] = []
 
     async def create_analysis(self, analysis: Any) -> dict[str, Any]:
         if hasattr(analysis, "model_dump"):
             values = analysis.model_dump()
         else:
             values = dict(analysis)
+        self.created_requests.append(values)
         record = self.records[0].copy()
         record.update(
             {
@@ -259,6 +261,20 @@ def test_create_analysis_serializes_complete_record() -> None:
     _assert_complete_record(data, CREATED_ID)
 
 
+def test_create_analysis_passes_dashboard_payload_to_service() -> None:
+    test_client, service = _test_client()
+    payload = {
+        "task": "code_analysis",
+        "project_name": "new-project",
+        "source_code": "def newest():\n    return True\n",
+    }
+
+    response = test_client.post("/analyses", json=payload)
+
+    assert response.status_code == 201
+    assert service.created_requests == [payload]
+
+
 def test_list_analyses_uses_default_limit_and_newest_first() -> None:
     test_client, service = _test_client()
 
@@ -281,6 +297,19 @@ def test_list_analyses_accepts_valid_limit() -> None:
     assert service.requested_limits == [1]
     assert len(response.json()) == 1
     assert response.json()[0]["id"] == str(CREATED_ID)
+
+
+def test_list_analyses_accepts_maximum_limit() -> None:
+    test_client, service = _test_client()
+
+    response = test_client.get("/analyses?limit=100")
+
+    assert response.status_code == 200
+    assert service.requested_limits == [100]
+    assert [item["id"] for item in response.json()] == [
+        str(CREATED_ID),
+        str(SECOND_ID),
+    ]
 
 
 def test_list_analyses_rejects_invalid_limits() -> None:
