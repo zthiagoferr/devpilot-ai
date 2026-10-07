@@ -12,6 +12,8 @@ Version 4 adds a browser dashboard at [`/dashboard`](http://localhost:8000/dashb
 
 Version 5 adds a controlled skills-and-tools runtime. Tools expose explicitly registered project capabilities, skills group approved tools for agent workflows, and a `ToolExecutor` validates registry lookups and returns structured, secret-safe results. V5 does not provide arbitrary command execution, dynamic plugin loading, or a general-purpose code execution environment.
 
+Version 6 adds official MCP SDK v2 support. MCP is integrated through the SDK's `MCPServer` and `Client` architecture, with the application's canonical `ToolRegistry` injected into the server composition layer. Discovery and calls are deterministic, results are structured and JSON-serializable, and failures are sanitized at the MCP boundary. MCP remains transport-independent in V6: the supported integration can be used in-process and is not mounted into FastAPI yet.
+
 ## GitHub repository discovery
 
 DevPilot uses a provider abstraction for GitHub access. Application code depends on the provider interface rather than directly on a particular HTTP library, keeping repository discovery replaceable and straightforward to test.
@@ -62,7 +64,7 @@ Version 3 stores completed analyses in a database through SQLAlchemy's asynchron
 export DATABASE_URL="postgresql+asyncpg://user:password@localhost:5432/devpilot"
 ```
 
-PostgreSQL with [`asyncpg`](https://github.com/MagicStack/asyncpg) is the production configuration. SQLite with [`aiosqlite`](https://github.com/omnilib/aiosqlite) is supported for tests and other applicable local, lightweight scenarios:
+PostgreSQL with [`asyncpg`](https://github.com/MagicStack/asyncpg) is the production configuration. SQLite with [`aiosqlite`](https://github.com/omnilib/aiiosqlite) is supported for tests and other applicable local, lightweight scenarios:
 
 ```bash
 export DATABASE_URL="sqlite+aiosqlite:///./devpilot.db"
@@ -222,6 +224,53 @@ A typical supported flow is:
 
 The browser and model are untrusted callers of this flow. Authorization, validation, capability selection, isolation, and secret handling remain server-side.
 
+## V6 MCP integration
+
+V6 integrates the official MCP SDK v2. MCP is an adapter around the approved application capabilities, not a replacement for the canonical tool runtime. The application composition layer creates one canonical, instance-scoped `ToolRegistry`, registers the approved tools, and injects that registry into the MCP server. MCP therefore exposes the same reviewed capabilities rather than maintaining a second hidden registry or discovering tools independently.
+
+### MCPServer and Client architecture
+
+The server is created with the official SDK `MCPServer` and is given the injected canonical `ToolRegistry`. Registered tools are exposed through the SDK's MCP tool contract, including names, descriptions, input schemas, and structured results. The official SDK `Client` connects to that server and uses the standard discovery and call operations. The server and client are separate protocol participants even when they run in the same process.
+
+The V6 flow is:
+
+1. Application composition creates an isolated canonical `ToolRegistry` and registers approved tools.
+2. The MCP `MCPServer` is constructed with that registry and the server's fixed identity.
+3. An SDK `Client` requests tool discovery through the server.
+4. Discovery returns the registered tools in deterministic name order with JSON-serializable metadata.
+5. The client calls a discovered tool by name with validated arguments.
+6. The server resolves only the registered tool, executes it through the approved boundary, and returns a structured success or sanitized error result.
+
+Registries are isolated per server instance: registering a tool on one `MCPServer` must not alter another server's tools. Unknown names fail as MCP errors and cannot select, import, or execute another capability.
+
+### Determinism and structured results
+
+MCP discovery is deterministic and repeatable. The same server and registry produce the same sorted tool names and metadata unless the application explicitly changes the registry. MCP calls are asynchronous and return structured content; successful JSON-compatible values are encoded as JSON rather than stringifying arbitrary Python objects. Tool failures are represented as error results with stable, useful operation-level messages while omitting exception text, stack traces, paths, credentials, and other secrets.
+
+The MCP adapter does not add a shell, generic subprocess, Python evaluator, unrestricted network client, dynamic import mechanism, plugin loader, or remote-code capability. MCP tool metadata is a discovery contract and does not grant permissions beyond the registered implementation.
+
+### Transport boundary and local use
+
+MCP remains transport-independent in V6. The current integration uses the SDK's server/client objects directly and supports in-process testing without sockets, HTTP, subprocesses, or external services. Transport selection can be added at a later application boundary without changing the registry and capability rules.
+
+MCP is **not mounted into FastAPI yet**. The existing FastAPI API and `/dashboard` continue to expose the V1-V5 application surfaces; MCP is not an additional HTTP route, dashboard endpoint, or OpenAPI operation in V6. Do not infer network MCP availability from the presence of the SDK integration.
+
+For local SDK-level use, construct an isolated `MCPServer`, register or inject the approved tools through the canonical `ToolRegistry`, and use an SDK `Client` in an asynchronous context:
+
+```python
+async with Client(server) as client:
+    tools = await client.list_tools()
+    result = await client.call_tool("tool_name", {"argument": "value"})
+```
+
+This in-process pattern is the preferred V6 test and local-development path. Tests should verify sorted discovery, successful JSON results, unknown-tool isolation, sanitized failures, server registry isolation, and the absence of arbitrary shell capabilities. Production transport, authentication, authorization, rate limiting, and network policy remain deployment concerns when a transport is introduced.
+
+### MCP security boundaries
+
+The MCP server is a server-side capability boundary, not a trust boundary for callers. Clients, models, and tool arguments are untrusted. The server must validate names and inputs, resolve only the injected canonical registry, enforce each tool's project-root and resource limits, and fail closed on unknown tools and execution errors.
+
+MCP responses and metadata must not disclose API keys, tokens, database URLs, authorization headers, environment snapshots, secret-bearing exception messages, stack traces, or sensitive absolute paths. A tool that raises an internal error must produce a sanitized MCP error result, and a failing tool must not affect another registered tool. These controls complement, rather than replace, deployment authentication, authorization, HTTPS, network egress controls, process isolation, and secret management.
+
 ## Architecture
 
 The project is organized around clear application boundaries:
@@ -232,11 +281,12 @@ The project is organized around clear application boundaries:
 - **Tools** — reusable, explicitly registered capabilities such as repository discovery, safe project filesystem operations, and bounded test execution.
 - **Skills** — named groupings of approved tools used by agent workflows.
 - **Tool runtime** — isolated registries, deterministic discovery, dependency injection, and `ToolExecutor` execution boundaries.
+- **MCP adapter** — official MCP SDK v2 `MCPServer`/`Client` integration over an injected canonical `ToolRegistry`; transport-independent and not mounted into FastAPI in V6.
 - **GitHub providers** — an interface and an asynchronous `httpx` implementation for repository access.
 - **Persistence** — SQLAlchemy models, asynchronous database configuration, and the analysis repository.
 - **Migrations** — Alembic revisions for database schema changes.
 - **Dashboard** — a browser-facing HTML interface with local static assets over the existing API and services.
-- **Tests** — unit and asynchronous integration coverage, including an SQLite/`aiosqlite` persistence fixture and dashboard asset/HTML checks.
+- **Tests** — unit and asynchronous integration coverage, including in-process MCP tests, an SQLite/`aiosqlite` persistence fixture, and dashboard asset/HTML checks.
 
 A typical repository layout is:
 
@@ -276,6 +326,8 @@ Start the development API with the project's ASGI entry point:
 ```bash
 uvicorn app.main:app --reload
 ```
+
+MCP V6 can be exercised locally through an in-process SDK `Client` and `MCPServer`; no MCP transport or FastAPI mount is required for this setup.
 
 If the distribution does not provide the optional development extra, install the dependencies declared by the project before running the commands above.
 
@@ -317,7 +369,7 @@ pytest
 
 Dashboard tests request `/dashboard`, verify semantic content, confirm that configuration values and secrets are not rendered, and check that referenced CSS and JavaScript assets are local and served by FastAPI. When changing dashboard markup or assets, run the complete suite and manually check the workflows at `/dashboard` in a browser.
 
-Persistence tests use an in-memory SQLite database with `aiosqlite` when the asynchronous SQLAlchemy dependencies are available. The HTTP GitHub provider accepts an injected `httpx.AsyncClient`, allowing tests and callers to provide a custom transport without making real network requests. V5 runtime tests should also verify duplicate rejection, deterministic registry ordering, isolated registry instances, safe executor failures, protected filesystem paths, and absence of arbitrary shell capabilities.
+Persistence tests use an in-memory SQLite database with `aiosqlite` when the asynchronous SQLAlchemy dependencies are available. The HTTP GitHub provider accepts an injected `httpx.AsyncClient`, allowing tests and callers to provide a custom transport without making real network requests. V5 runtime tests should also verify duplicate rejection, deterministic registry ordering, isolated registry instances, safe executor failures, protected filesystem paths, and absence of arbitrary shell capabilities. V6 MCP tests should use the official SDK objects in process and verify deterministic discovery, structured JSON results, sanitized errors, unknown-tool isolation, per-server registry isolation, and no arbitrary shell capability.
 
 ## Status and roadmap
 
@@ -325,12 +377,13 @@ Persistence tests use an in-memory SQLite database with `aiosqlite` when the asy
 - **V3:** Persistent analysis history, asynchronous SQLAlchemy persistence, Alembic migrations, PostgreSQL/`asyncpg` production support, SQLite/`aiosqlite` test support, and the analysis history endpoints are available.
 - **V4:** The local `/dashboard` interface, same-origin static assets, and UI access to the supported analysis, history, and GitHub discovery workflows are available.
 - **V5:** Explicit tool and skill contracts, isolated registries, deterministic metadata discovery, dependency-injected capabilities, and `ToolExecutor` safe execution boundaries are available where implemented by the current source tree. V5 does not provide arbitrary shell execution, untrusted dynamic imports, plugin installation, remote code loading, or a process/container sandbox.
-- **Future work:** Large-repository discovery improvements, including pagination or alternate tree traversal, remain roadmap items. The current provider intentionally rejects truncated GitHub tree responses and does not inspect additional branches or historical revisions.
+- **V6:** Official MCP SDK v2 `MCPServer`/`Client` integration, injected canonical `ToolRegistry`, deterministic discovery and calls, structured secret-safe results, isolated in-process server/client testing, and transport-independent local use are available. MCP is not mounted into FastAPI yet.
+- **Future work:** Transport exposure and FastAPI integration for MCP, when explicitly designed with deployment security controls, remain future work. Large-repository discovery improvements, including pagination or alternate tree traversal, also remain roadmap items. The current provider intentionally rejects truncated GitHub tree responses and does not inspect additional branches or historical revisions.
 
 ## Security
 
 Never commit tokens, passwords, API keys, or personal credentials to this repository. Supply secrets through environment variables, deployment secrets, or the application's external configuration mechanism. Keep local secret files out of version control, rotate any exposed credential, and avoid printing provider objects, request headers, or exception details that could disclose secrets.
 
-The V5 runtime is capability-based at the application level: only explicitly approved and registered tools can be selected, and registries do not dynamically load arbitrary code. It does not permit arbitrary shell execution, untrusted dynamic imports, plugin installation, remote code loading, or secret-bearing error and discovery metadata. These boundaries do not replace deployment-level authentication, authorization, network controls, resource limits, filesystem permissions, dependency review, or process/container isolation where those are required.
+The V5 runtime is capability-based at the application level: only explicitly approved and registered tools can be selected, and registries do not dynamically load arbitrary code. V6 MCP uses the same approved capabilities through an injected canonical registry and does not add arbitrary shell execution, untrusted dynamic imports, plugin installation, remote code loading, or secret-bearing error and discovery metadata. MCP remains transport-independent and is not mounted into FastAPI yet. These boundaries do not replace deployment-level authentication, authorization, network controls, resource limits, filesystem permissions, dependency review, or process/container isolation where those are required.
 
 The dashboard follows the same boundary: it may display server responses needed for an analysis workflow, but it must not expose server configuration or credentials. Deployments that need access control must provide it at the appropriate network or application boundary; the current dashboard documentation does not claim built-in authentication.
