@@ -27,6 +27,8 @@ class DevelopmentAgent(BaseAgent):
         coding_agent: CodingAgent | None = None,
         project_root: str | Path | None = None,
         llm_service: Any | None = None,
+        tool_runtime: Any | None = None,
+        v5_tool_runtime: Any | None = None,
     ) -> None:
         super().__init__(
             name="development_agent",
@@ -44,12 +46,28 @@ class DevelopmentAgent(BaseAgent):
             else None
         )
 
+        # ``v5_tool_runtime`` is retained as an explicit alias for callers using
+        # the V5 naming convention.  The runtime is injected into CodingAgent
+        # contexts; this agent does not execute arbitrary runtime operations.
+        self.tool_runtime = (
+            tool_runtime if tool_runtime is not None else v5_tool_runtime
+        )
+
         self.coding_agent = coding_agent
         if self.coding_agent is None and self.project_root is not None:
-            self.coding_agent = CodingAgent(
-                llm_service=llm_service,
-                project_root=self.project_root,
-            )
+            kwargs: dict[str, Any] = {
+                "llm_service": llm_service,
+                "project_root": self.project_root,
+            }
+            if self.tool_runtime is not None:
+                kwargs["tool_runtime"] = self.tool_runtime
+            try:
+                self.coding_agent = CodingAgent(**kwargs)
+            except TypeError:
+                # Older CodingAgent implementations do not accept the injected
+                # runtime.  Keep constructor compatibility and inject it below.
+                kwargs.pop("tool_runtime", None)
+                self.coding_agent = CodingAgent(**kwargs)
 
     async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         goal = context.get("development_goal", context.get("goal"))
@@ -66,6 +84,10 @@ class DevelopmentAgent(BaseAgent):
             return self._error("A valid project_root is required.")
         if self.coding_agent is None:
             return self._error("A CodingAgent is required.")
+
+        runtime = context.get("tool_runtime")
+        if runtime is None:
+            runtime = context.get("v5_tool_runtime", self.tool_runtime)
 
         tasks: list[dict[str, str]] = []
         paths: list[Path] = []
@@ -98,14 +120,17 @@ class DevelopmentAgent(BaseAgent):
         completed_tasks: list[dict[str, str]] = []
         task_results: list[dict[str, Any]] = []
         for index, item in enumerate(tasks):
-            coding_context = {
+            coding_context: dict[str, Any] = {
                 "development_goal": goal,
                 "task": item["task"],
                 "file_path": item["file_path"],
             }
+            if runtime is not None:
+                coding_context["tool_runtime"] = runtime
+                coding_context["v5_tool_runtime"] = runtime
             try:
                 result = await self.coding_agent.execute(coding_context)
-            except Exception as exc:  # CodingAgent failures must trigger rollback.
+            except Exception as exc:
                 failure_result: dict[str, Any] = {
                     "status": "error",
                     "message": str(exc),

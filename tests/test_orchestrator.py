@@ -1,5 +1,7 @@
 from typing import Any
 
+import importlib
+
 import pytest
 
 from app.agents.insights_agent import InsightsAgent
@@ -292,3 +294,112 @@ async def test_orchestrator_rejects_multi_file_develop_missing_required_context(
     assert result["agent"] == "orchestrator"
     assert result["status"] == "error"
     assert development_agent.calls == []
+
+
+class _RegistryEchoTool:
+    """Canonical V5 tool used only for registry integration tests."""
+
+    def __new__(cls):
+        from app.tools.base import BaseTool
+
+        class RegistryEchoTool(BaseTool):
+            def __init__(self) -> None:
+                super().__init__(
+                    name="injected_echo",
+                    description="A deterministic injected tool.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "value": {"type": "string"},
+                        },
+                        "required": ["value"],
+                        "additionalProperties": False,
+                    },
+                )
+
+            async def execute(self, **kwargs: Any) -> dict[str, Any]:
+                return {"value": kwargs["value"]}
+
+        return RegistryEchoTool()
+
+
+def test_v5_runtime_dependencies_can_be_injected_and_are_isolated() -> None:
+    first_agent = StubDevelopmentAgent(
+        {"agent": "first", "status": "completed"}
+    )
+    second_agent = StubDevelopmentAgent(
+        {"agent": "second", "status": "completed"}
+    )
+
+    first = OrchestratorAgent(development_agent=first_agent)
+    second = OrchestratorAgent(development_agent=second_agent)
+
+    first_dependency = getattr(
+        first,
+        "development_agent",
+        first._development_agent,
+    )
+    second_dependency = getattr(
+        second,
+        "development_agent",
+        second._development_agent,
+    )
+
+    assert first_dependency is first_agent
+    assert second_dependency is second_agent
+    assert first_dependency is not second_dependency
+
+
+def test_v5_custom_registries_support_registration_discovery_and_isolation() -> None:
+    from app.tools import ToolRegistry
+
+    first = ToolRegistry()
+    second = ToolRegistry()
+    tool = _RegistryEchoTool()
+
+    first.register(tool)
+
+    assert first.lookup("injected_echo") is tool
+    assert second.lookup("injected_echo") is None
+
+    first_names = {
+        item["name"]
+        for item in first.discovery_metadata()
+    }
+    second_names = {
+        item["name"]
+        for item in second.discovery_metadata()
+    }
+
+    assert "injected_echo" in first_names
+    assert "injected_echo" not in second_names
+
+
+def test_v5_default_project_tools_are_discoverable_without_shell_access(
+    tmp_path,
+) -> None:
+    from app.tools import create_default_project_registry
+
+    registry = create_default_project_registry(tmp_path)
+    names = {
+        item["name"]
+        for item in registry.discovery_metadata()
+    }
+
+    assert {"list_files", "read_file", "write_file"}.issubset(names)
+    assert not names.intersection(
+        {"shell", "run_shell", "execute_command"}
+    )
+
+
+def test_v5_registries_do_not_require_a_module_global_mutable_registry() -> None:
+    from app.tools import ToolRegistry
+
+    first = ToolRegistry()
+    second = ToolRegistry()
+
+    first.register(_RegistryEchoTool())
+
+    assert first.lookup("injected_echo") is not None
+    assert second.lookup("injected_echo") is None
+

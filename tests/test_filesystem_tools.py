@@ -1,4 +1,7 @@
+import importlib
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -132,3 +135,209 @@ async def test_list_files_tool_excludes_symlink_to_file_outside_project_root(tmp
 
     assert result["status"] == "completed"
     assert result["files"] == ["inside.txt"]
+
+
+# V5 runtime coverage
+
+from app.tools import (
+    Skill,
+    SkillRegistry,
+    ToolExecutionResult,
+    ToolExecutor,
+    ToolRegistry,
+    create_default_project_registry,
+)
+from app.tools.base import BaseTool
+
+
+class _EchoTool(BaseTool):
+    def __init__(self, name: str = "echo_test") -> None:
+        super().__init__(
+            name=name,
+            description="A deterministic test tool.",
+            input_schema={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        )
+
+    async def execute(self, **kwargs: Any) -> dict[str, Any]:
+        return {"value": kwargs["value"]}
+
+
+class _FailingTool(BaseTool):
+    def __init__(self) -> None:
+        super().__init__(
+            name="failing_test",
+            description="A deterministic failing test tool.",
+        )
+
+    async def execute(self, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError(f"internal failure: {kwargs.get('secret')}")
+
+
+def test_valid_tool_registration_and_lookup():
+    registry = ToolRegistry()
+    tool = _EchoTool()
+
+    registry.register(tool)
+
+    assert registry.lookup("echo_test") is tool
+    assert registry.get("echo_test") is tool
+    assert registry.lookup("missing") is None
+
+
+def test_duplicate_and_invalid_tool_registration_are_rejected():
+    registry = ToolRegistry()
+    registry.register(_EchoTool())
+
+    with pytest.raises(ValueError):
+        registry.register(_EchoTool())
+
+    with pytest.raises(TypeError):
+        registry.register(object())
+
+
+def test_tool_discovery_is_deterministically_sorted_and_json_serializable():
+    registry = ToolRegistry()
+
+    for name in ("z_tool", "a_tool", "m_tool"):
+        registry.register(_EchoTool(name))
+
+    discovered = registry.discovery_metadata()
+
+    assert [item["name"] for item in discovered] == [
+        "a_tool",
+        "m_tool",
+        "z_tool",
+    ]
+    json.dumps(discovered)
+
+
+@pytest.mark.asyncio
+async def test_tool_executor_returns_success_and_safe_failure_results():
+    registry = ToolRegistry()
+    registry.register(_EchoTool())
+    registry.register(_FailingTool())
+    executor = ToolExecutor(registry)
+
+    success = await executor.execute("echo_test", value="ok")
+
+    assert isinstance(success, ToolExecutionResult)
+    assert success.success is True
+    assert success.status == "completed"
+    assert success.output == {"value": "ok"}
+
+    missing = await executor.execute(
+        "missing_tool",
+        value="SECRET_VALUE",
+    )
+
+    assert missing.success is False
+    assert missing.status == "failed"
+    assert missing.error == "Tool is not registered."
+    assert "SECRET_VALUE" not in json.dumps(missing.to_dict())
+
+    failed = await executor.execute(
+        "failing_test",
+        secret="TOP_SECRET",
+    )
+
+    assert failed.success is False
+    assert failed.status == "failed"
+    assert failed.error == "Tool execution failed."
+    assert "TOP_SECRET" not in json.dumps(failed.to_dict())
+
+
+def test_skill_and_skill_registry_behavior():
+    tool = _EchoTool()
+    skill = Skill(
+        name="filesystem",
+        description="Project files",
+        tools=[tool],
+    )
+    registry = SkillRegistry()
+
+    registry.register(skill)
+
+    assert registry.lookup("filesystem") is skill
+    assert registry.get("filesystem") is skill
+    assert registry.lookup("missing") is None
+
+    metadata = registry.discovery_metadata()
+    assert metadata[0]["name"] == "filesystem"
+    assert metadata[0]["tools"][0]["name"] == "echo_test"
+    json.dumps(metadata)
+
+    with pytest.raises(ValueError):
+        registry.register(skill)
+
+    with pytest.raises(TypeError):
+        registry.register(object())
+
+
+def test_tool_and_skill_registries_are_isolated():
+    first_tools = ToolRegistry()
+    second_tools = ToolRegistry()
+
+    first_tools.register(_EchoTool())
+
+    assert first_tools.lookup("echo_test") is not None
+    assert second_tools.lookup("echo_test") is None
+
+    first_skills = SkillRegistry()
+    second_skills = SkillRegistry()
+    first_skills.register(
+        Skill(
+            name="filesystem",
+            description="Project files",
+            tools=[_EchoTool()],
+        )
+    )
+
+    assert first_skills.lookup("filesystem") is not None
+    assert second_skills.lookup("filesystem") is None
+
+
+@pytest.mark.asyncio
+async def test_filesystem_traversal_workspace_and_secret_safe_errors(tmp_path):
+    outside = tmp_path.parent / "outside-secret.txt"
+    outside.write_text("TOP_SECRET")
+    read = ReadFileTool(project_root=tmp_path)
+    write = WriteFileTool(project_root=tmp_path)
+
+    for tool, kwargs in (
+        (read, {"path": str(outside)}),
+        (read, {"path": "missing.txt"}),
+        (write, {"path": "../outside-secret.txt", "content": "x"}),
+    ):
+        result = await tool.execute(**kwargs)
+        assert result["status"] == "error"
+        assert "TOP_SECRET" not in json.dumps(result)
+        assert str(outside) not in json.dumps(result)
+
+
+def test_approved_default_project_tools_and_no_arbitrary_shell_capability(tmp_path):
+    registry = create_default_project_registry(tmp_path)
+    discovered = registry.discovery_metadata()
+    names = {item["name"] for item in discovered}
+
+    assert {"list_files", "read_file", "write_file"}.issubset(names)
+    assert not names.intersection(
+        {"shell", "run_shell", "execute_command"}
+    )
+
+
+def test_default_project_registries_are_fresh_and_isolated(tmp_path):
+    first = create_default_project_registry(tmp_path)
+    second = create_default_project_registry(tmp_path)
+
+    assert first is not second
+
+    first.register(_EchoTool())
+
+    assert first.lookup("echo_test") is not None
+    assert second.lookup("echo_test") is None
+

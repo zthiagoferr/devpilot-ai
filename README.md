@@ -10,6 +10,8 @@ DevPilot discovers a GitHub repository, builds an analysis context, and coordina
 
 Version 4 adds a browser dashboard at [`/dashboard`](http://localhost:8000/dashboard). The dashboard provides a local user interface for submitting analysis input, viewing results, browsing persisted analysis history, and using the repository-discovery workflow. It uses the same application services and HTTP API as the programmatic clients; it does not replace the API or add capabilities that are not supported by the backend.
 
+Version 5 adds a controlled skills-and-tools runtime. Tools expose explicitly registered project capabilities, skills group approved tools for agent workflows, and a `ToolExecutor` validates registry lookups and returns structured, secret-safe results. V5 does not provide arbitrary command execution, dynamic plugin loading, or a general-purpose code execution environment.
+
 ## GitHub repository discovery
 
 DevPilot uses a provider abstraction for GitHub access. Application code depends on the provider interface rather than directly on a particular HTTP library, keeping repository discovery replaceable and straightforward to test.
@@ -153,6 +155,73 @@ The dashboard is a client of the backend, not a place to expose configuration. S
 
 The browser can submit data to the endpoints made available by the application, so deployments should apply their own network controls, authentication, rate limiting, and HTTPS policy when those are required. The dashboard itself does not claim to provide user authentication or authorization. Treat submitted source code, repository identifiers, and analysis results as potentially sensitive, and avoid logging them unnecessarily.
 
+## V5 Skills and Tools
+
+V5 exposes capabilities through explicit contracts rather than allowing agents to call arbitrary Python or operating-system functionality. The source tree and generated API documentation remain authoritative; the following describes the intended runtime boundaries without claiming capabilities that are not implemented.
+
+### Tool contract
+
+A tool is a named, registered capability with a stable metadata contract and an asynchronous execution method. A tool should provide:
+
+- A unique, non-empty `name`.
+- A human-readable `description` that does not contain credentials or other sensitive runtime data.
+- A JSON-serializable `input_schema` describing accepted arguments, including required fields and whether additional properties are allowed.
+- An asynchronous `execute(**kwargs)` operation returning a structured result, normally containing a `status` such as `completed` or `error`.
+- Safe failure behavior: errors should identify the failed operation without returning secrets, file contents that were not requested, credentials, stack traces, or sensitive absolute paths.
+
+The schema is a validation and discovery contract, not permission to perform operations outside the tool's implementation. Tools must enforce their own project-root, path, timeout, and output-size boundaries.
+
+The built-in project filesystem capabilities are deliberately narrow: `list_files` lists eligible project files, `read_file` reads an allowed project-relative file, and `write_file` writes an allowed project-relative file. The test capability `run_tests` is a bounded project test operation where enabled by the application. Protected files and directories, path traversal, symlinks escaping the project root, and secret-bearing error details must be rejected. The exact available set depends on the configured application and source tree.
+
+### Skill contract
+
+A skill is a named, descriptive grouping of approved tools for a particular agent workflow. A skill has a unique `name`, a `description`, and an explicit list of tool names. Skill registration does not grant tools that are not present in the tool registry and does not bypass tool validation or execution limits. Skills are orchestration metadata, not dynamically loaded code or an authorization mechanism by themselves.
+
+### Registries and deterministic discovery
+
+`ToolRegistry` and `SkillRegistry` are separate, instance-scoped registries. Registration rejects invalid objects and duplicate names. Lookup of an unknown name fails rather than silently creating or importing a capability. Discovery/listing returns registered entries in deterministic name order, and public metadata must be JSON serializable so it can be inspected by agents and tests without exposing implementation state.
+
+Discovery is explicit and deterministic: the application constructs the approved tools and skills, registers them, and exposes their metadata. V5 does not scan arbitrary directories, execute discovered files, trust user-provided import paths, install plugins, load remote code, or use untrusted dynamic imports. A deployment may inject a different provider, registry, or tool implementation through normal application configuration and dependency injection, but that remains controlled application code reviewed by the deployment.
+
+### ToolExecutor
+
+`ToolExecutor` is the execution boundary between orchestration and tools. It resolves a tool by its registered name, validates or delegates validation of the input contract, invokes the asynchronous operation, and normalizes failures into structured results. Missing tools, invalid arguments, timeouts, and tool exceptions must fail closed. Executor failures must not echo arbitrary arguments or include secret values, stack traces, request headers, environment variables, or secret-bearing discovery metadata.
+
+The executor is not a shell, Python evaluator, sandbox escape hatch, or permission escalation layer. Registering a tool is the point at which its capability is approved; an agent cannot turn a tool name or schema into an arbitrary command.
+
+### Dependency injection and runtime isolation
+
+Services receive their collaborators explicitly where supported: providers, HTTP clients, persistence sessions, project roots, registries, and executors can be supplied by the application composition layer and replaced in tests. This keeps network access, storage, and tool execution behind interfaces and avoids hidden global registries or ambient credentials.
+
+Each runtime should use an isolated project workspace and an isolated registry instance. Filesystem tools must resolve paths beneath the configured project root, reject protected locations and escaping symlinks, and avoid exposing host files. Test execution, when enabled, is bounded by the tool's timeout and project scope. Isolation here means application-level workspace and capability boundaries; V5 does not claim to provide a container, VM, process sandbox, or comprehensive OS security boundary.
+
+### Approved capabilities and explicit security boundaries
+
+The approved default project capabilities are limited to the tools registered by the application, such as safe project file listing, controlled project-file reads and writes, repository/provider operations, and the bounded test tool where configured. They do not include a generic `shell`, `run_shell`, `execute_command`, arbitrary subprocess API, unrestricted network client, or arbitrary code evaluator.
+
+In particular, V5 must not:
+
+- Execute arbitrary shell commands or accept a command string as a general-purpose capability.
+- Import untrusted modules or execute user-supplied dynamic import paths.
+- Install plugins or packages as part of discovery or execution.
+- Load executable code, tools, or skills from remote URLs, repositories, or model output.
+- Put API keys, tokens, database URLs, authorization headers, environment snapshots, or secret-bearing exception/discovery metadata into tool results, registry metadata, logs, or dashboard responses.
+
+These are security boundaries, not promises that every deployment is secure by default. Operators should still apply authentication, authorization, network egress controls, resource limits, filesystem permissions, dependency review, and secret-management practices appropriate to their environment.
+
+### V5 usage architecture
+
+A typical supported flow is:
+
+1. The application composition layer creates approved provider, filesystem, persistence, tool, and skill dependencies.
+2. The tool and skill registries register validated instances and expose deterministic, non-secret metadata.
+3. An agent receives the relevant skill contract and selects a declared tool by name.
+4. `ToolExecutor` resolves the name, validates inputs, applies the tool's boundaries, and awaits execution.
+5. The tool returns a structured result; the executor returns a normalized safe success or failure result to the agent.
+6. The analysis workflow combines the result with other agent output and returns it through the existing service/API or dashboard layers.
+
+The browser and model are untrusted callers of this flow. Authorization, validation, capability selection, isolation, and secret handling remain server-side.
+
 ## Architecture
 
 The project is organized around clear application boundaries:
@@ -160,7 +229,9 @@ The project is organized around clear application boundaries:
 - **API layer** — HTTP routes for analysis execution, analysis history, and the dashboard entry point.
 - **Core configuration** — validated settings and environment-variable integration.
 - **Agents** — specialized asynchronous analyzers coordinated by the analysis workflow.
-- **Tools** — reusable capabilities such as repository discovery and test execution.
+- **Tools** — reusable, explicitly registered capabilities such as repository discovery, safe project filesystem operations, and bounded test execution.
+- **Skills** — named groupings of approved tools used by agent workflows.
+- **Tool runtime** — isolated registries, deterministic discovery, dependency injection, and `ToolExecutor` execution boundaries.
 - **GitHub providers** — an interface and an asynchronous `httpx` implementation for repository access.
 - **Persistence** — SQLAlchemy models, asynchronous database configuration, and the analysis repository.
 - **Migrations** — Alembic revisions for database schema changes.
@@ -176,6 +247,7 @@ app/
   core/
   persistence/
   providers/
+  skills/
   tools/
   static/
 tests/
@@ -245,17 +317,20 @@ pytest
 
 Dashboard tests request `/dashboard`, verify semantic content, confirm that configuration values and secrets are not rendered, and check that referenced CSS and JavaScript assets are local and served by FastAPI. When changing dashboard markup or assets, run the complete suite and manually check the workflows at `/dashboard` in a browser.
 
-Persistence tests use an in-memory SQLite database with `aiosqlite` when the asynchronous SQLAlchemy dependencies are available. The HTTP GitHub provider accepts an injected `httpx.AsyncClient`, allowing tests and callers to provide a custom transport without making real network requests.
+Persistence tests use an in-memory SQLite database with `aiosqlite` when the asynchronous SQLAlchemy dependencies are available. The HTTP GitHub provider accepts an injected `httpx.AsyncClient`, allowing tests and callers to provide a custom transport without making real network requests. V5 runtime tests should also verify duplicate rejection, deterministic registry ordering, isolated registry instances, safe executor failures, protected filesystem paths, and absence of arbitrary shell capabilities.
 
 ## Status and roadmap
 
 - **V1/V2:** GitHub repository discovery, provider abstraction, default-branch handling, recursive tree discovery, authentication, configurable API endpoints, and defensive response validation are available.
 - **V3:** Persistent analysis history, asynchronous SQLAlchemy persistence, Alembic migrations, PostgreSQL/`asyncpg` production support, SQLite/`aiosqlite` test support, and the analysis history endpoints are available.
 - **V4:** The local `/dashboard` interface, same-origin static assets, and UI access to the supported analysis, history, and GitHub discovery workflows are available.
+- **V5:** Explicit tool and skill contracts, isolated registries, deterministic metadata discovery, dependency-injected capabilities, and `ToolExecutor` safe execution boundaries are available where implemented by the current source tree. V5 does not provide arbitrary shell execution, untrusted dynamic imports, plugin installation, remote code loading, or a process/container sandbox.
 - **Future work:** Large-repository discovery improvements, including pagination or alternate tree traversal, remain roadmap items. The current provider intentionally rejects truncated GitHub tree responses and does not inspect additional branches or historical revisions.
 
 ## Security
 
 Never commit tokens, passwords, API keys, or personal credentials to this repository. Supply secrets through environment variables, deployment secrets, or the application's external configuration mechanism. Keep local secret files out of version control, rotate any exposed credential, and avoid printing provider objects, request headers, or exception details that could disclose secrets.
+
+The V5 runtime is capability-based at the application level: only explicitly approved and registered tools can be selected, and registries do not dynamically load arbitrary code. It does not permit arbitrary shell execution, untrusted dynamic imports, plugin installation, remote code loading, or secret-bearing error and discovery metadata. These boundaries do not replace deployment-level authentication, authorization, network controls, resource limits, filesystem permissions, dependency review, or process/container isolation where those are required.
 
 The dashboard follows the same boundary: it may display server responses needed for an analysis workflow, but it must not expose server configuration or credentials. Deployments that need access control must provide it at the appropriate network or application boundary; the current dashboard documentation does not claim built-in authentication.

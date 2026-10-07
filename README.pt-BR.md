@@ -16,6 +16,7 @@ DevPilot AI é uma aplicação para análise automatizada de projetos de softwar
 - [Dashboard](#dashboard)
 - [Arquitetura](#arquitetura)
 - [Fluxos de trabalho](#fluxos-de-trabalho)
+- [Runtime V5 de ferramentas e skills](#runtime-v5-de-ferramentas-e-skills)
 - [Requisitos](#requisitos)
 - [Instalação](#instalação)
 - [Configuração](#configuração)
@@ -26,7 +27,7 @@ DevPilot AI é uma aplicação para análise automatizada de projetos de softwar
 - [Persistência e migrações](#persistência-e-migrações)
 - [Testes](#testes)
 - [Estrutura do projeto](#estrutura-do-projeto)
-- [Informações das versões V1–V3](#informações-das-versões-v1v3)
+- [Informações das versões V1–V4](#informações-das-versões-v1v4)
 - [Roadmap](#roadmap)
 - [Contribuição](#contribuição)
 - [Licença](#licença)
@@ -59,7 +60,8 @@ A aplicação é organizada em camadas:
 - **Orquestrador:** coordena a tarefa e encaminha o contexto aos agentes adequados;
 - **Agentes especializados:** executam análises específicas;
 - **Serviço de análise:** cria, lista e recupera os registros de análise;
-- **Persistência:** armazena as análises e seus resultados.
+- **Persistência:** armazena as análises e seus resultados;
+- **Runtime de ferramentas e skills:** disponibiliza ferramentas permitidas, registra suas definições e executa as chamadas com limites explícitos.
 
 Os agentes disponíveis no fluxo de análise completa são:
 
@@ -87,6 +89,45 @@ O cliente pode enviar uma análise para `POST /analyses`. O serviço persiste a 
 ### Execução pelo dashboard
 
 O usuário acessa o dashboard, preenche o formulário e envia o código para a API. O dashboard é apenas uma interface de acesso aos endpoints disponíveis; a validação e o processamento permanecem no servidor.
+
+## Runtime V5 de ferramentas e skills
+
+A V5 introduz um runtime explícito para ferramentas e skills. O runtime separa a definição de uma capacidade, seu registro, sua descoberta e sua execução. Isso permite que agentes recebam somente as capacidades que foram deliberadamente disponibilizadas, sem transformar a aplicação em um executor genérico de comandos.
+
+### Contratos
+
+Uma ferramenta implementa o contrato `BaseTool`. Ela possui, no mínimo, um `name`, uma `description`, um `input_schema` e um método assíncrono `execute(**kwargs)`. O schema descreve a entrada aceita e o resultado da execução é estruturado, com um status de sucesso ou erro. As definições de ferramenta podem ser obtidas por metadados ou por `get_tool_definition()`.
+
+Skills representam capacidades compostas que podem utilizar ferramentas registradas. Uma skill deve declarar sua identidade e suas dependências de forma explícita; a existência de uma skill não concede automaticamente acesso a todas as ferramentas ou a recursos do sistema.
+
+Os contratos são limites de runtime, não uma promessa de que qualquer agente possa executar qualquer operação. Validação de entrada, autorização, isolamento e tratamento de erros continuam sendo responsabilidades da implementação e da implantação.
+
+### Registries e descoberta
+
+`ToolRegistry` mantém as ferramentas disponibilizadas ao runtime. Ferramentas podem ser registradas por meio do registro e consultadas pelo nome. `SkillRegistry` faz o mesmo para skills. A descoberta deve retornar somente definições registradas, incluindo nome, descrição e schema de entrada, para que o consumidor saiba o que pode solicitar antes de executar uma chamada.
+
+O registro não aceita implicitamente um nome de executável, uma linha de comando ou entrada de shell. A descoberta também não significa descoberta dinâmica de módulos arbitrários: somente componentes integrados e registrados pela aplicação fazem parte do conjunto disponível.
+
+### Executor e injeção de dependências
+
+`ToolExecutor` recebe o registry e as dependências necessárias por injeção. A resolução de uma chamada ocorre pelo nome registrado, valida a entrada de acordo com o contrato e delega a execução à ferramenta correspondente. O executor não deve interpretar uma string como comando de shell nem criar ferramentas com base em dados fornecidos pelo usuário.
+
+A injeção de dependências torna explícitos o registry, a raiz do projeto e os demais recursos usados por uma ferramenta. Em testes, essas dependências podem ser substituídas por implementações controladas. Em produção, a composição deve registrar apenas as ferramentas aprovadas para aquele contexto.
+
+### Isolamento e ferramentas seguras disponíveis
+
+A V5 oferece um conjunto restrito de ferramentas de projeto:
+
+- `list_files`: lista arquivos regulares visíveis sob a raiz do projeto, usando caminhos relativos POSIX;
+- `read_file`: lê um arquivo permitido dentro da raiz do projeto;
+- `write_file`: grava conteúdo em um arquivo permitido dentro da raiz do projeto;
+- `run_tests`: executa a suíte de testes do projeto com `python -m pytest -p no:cacheprovider`.
+
+As ferramentas de arquivos resolvem os caminhos em relação à raiz injetada, rejeitam caminhos que escapem dessa raiz e não permitem acesso a arquivos protegidos, como `.env`, `.git`, `.venv`, `__pycache__` e `.pytest_cache`. `.env.example` pode ser tratado como arquivo normal. Links simbólicos que apontem para fora do projeto não devem ser usados para contornar esse limite.
+
+`run_tests` aceita opcionalmente um caminho relativo de teste. O comando e seus argumentos executáveis são fixos: o chamador não fornece executável, flags, shell ou comandos adicionais. A execução ocorre na raiz do projeto, desativa a geração de bytecode e possui limite de 120 segundos. Saídas e códigos de retorno são devolvidos como resultado da ferramenta; erros não devem expor comandos, variáveis de ambiente, exceções internas ou detalhes desnecessários do sistema de arquivos.
+
+Esse conjunto é intencionalmente limitado. A V5 não documenta execução arbitrária de shell, acesso irrestrito ao sistema de arquivos, instalação de pacotes, acesso à rede, leitura de segredos ou execução em contêiner como capacidades fornecidas pelo runtime.
 
 ## Requisitos
 
@@ -174,7 +215,10 @@ A documentação interativa pode ser acessada em:
 - Mantenha os valores sensíveis em variáveis de ambiente e não os envie ao navegador.
 - Valide as entradas no servidor. Os endpoints rejeitam campos obrigatórios ausentes ou inválidos.
 - Use UUIDs válidos ao consultar análises; identificadores inexistentes retornam `404 Not Found` e UUIDs malformados retornam `422 Unprocessable Entity`.
-- A ferramenta de execução de testes restringe caminhos ao diretório do projeto e rejeita tentativas de acesso fora dele.
+- As ferramentas de arquivos ficam confinadas à raiz do projeto injetada e rejeitam caminhos fora dela, arquivos protegidos e links simbólicos que escapem do projeto.
+- A ferramenta de execução de testes não é um executor de comandos arbitrários: o comando é fixo, o caminho opcional é relativo ao projeto e há um limite de 120 segundos.
+- Registries e descoberta expõem somente ferramentas e skills explicitamente registradas. Não registre componentes com dados não confiáveis nem trate nomes descobertos como comandos executáveis.
+- O runtime não deve receber credenciais, segredos ou acesso de rede como dependências de uma ferramenta sem uma decisão de segurança específica e uma implementação correspondente.
 - Revise as migrações geradas automaticamente antes de aplicá-las em outros ambientes.
 - Em produção, use HTTPS, controles de acesso e uma configuração de banco apropriada ao ambiente. Esses controles devem ser fornecidos pela implantação e não são presumidos pelo servidor de desenvolvimento.
 
@@ -327,6 +371,8 @@ pytest --cov=app
 
 A suíte verifica os endpoints de agentes e análises, a validação dos dados de entrada, a serialização dos registros, a ordenação e os códigos de erro HTTP. Também verifica o dashboard, seu conteúdo semântico, a ausência de segredos no HTML e o uso de arquivos locais de CSS e JavaScript.
 
+A cobertura V5 também verifica os contratos de ferramentas, os registries, a descoberta, o executor, a injeção de dependências, o isolamento da raiz do projeto e as fronteiras das ferramentas de arquivos e de testes.
+
 A ferramenta de testes do projeto executa `python -m pytest` sem o provedor de cache do Pytest e impede que um caminho solicitado saia da raiz do projeto.
 
 ## Estrutura do projeto
@@ -337,6 +383,8 @@ A ferramenta de testes do projeto executa `python -m pytest` sem o provedor de c
 │   ├── agents/       # Agentes especializados
 │   ├── api/          # Rotas e dependências da API
 │   ├── models/       # Modelos da aplicação e persistência
+│   ├── tools/        # Contratos, registries e ferramentas seguras
+│   ├── skills/       # Skills e suas dependências
 │   └── main.py       # Ponto de entrada da aplicação FastAPI
 ├── migrations/       # Migrações do banco de dados
 ├── tests/            # Testes automatizados
@@ -344,14 +392,15 @@ A ferramenta de testes do projeto executa `python -m pytest` sem o provedor de c
 └── README.md
 ```
 
-## Informações das versões V1–V3
+## Informações das versões V1–V4
 
-As informações e referências históricas das versões V1, V2 e V3 são preservadas para manter o contexto da evolução do projeto. Esta documentação descreve o estado atual da V4; endpoints, fluxos ou componentes de versões anteriores não devem ser considerados parte da implementação atual sem confirmação no código.
+As informações e referências históricas das versões V1, V2, V3 e V4 são preservadas para manter o contexto da evolução do projeto. Esta documentação descreve o estado atual da V5; endpoints, fluxos ou componentes de versões anteriores não devem ser considerados parte da implementação atual sem confirmação no código.
 
 - **V1:** versão inicial do projeto e da API de análise;
 - **V2:** evolução da organização dos agentes e dos fluxos de análise;
 - **V3:** consolidação do orquestrador e da persistência das análises;
-- **V4:** versão documentada aqui, com o dashboard, a API atual, os fluxos orquestrados, as migrações e os requisitos de segurança, acessibilidade e testes descritos acima.
+- **V4:** versão com o dashboard, a API atual, os fluxos orquestrados, as migrações e os requisitos de segurança, acessibilidade e testes;
+- **V5:** versão documentada aqui, com contratos explícitos de ferramentas e skills, registries, descoberta controlada, executor com injeção de dependências, isolamento por raiz de projeto e o conjunto restrito de ferramentas seguras descrito acima.
 
 ## Roadmap
 
