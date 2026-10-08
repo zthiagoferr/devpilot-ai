@@ -1,0 +1,237 @@
+name: Deploy DevPilot AI frontend to GitHub Pages
+
+on:
+  push:
+    branches:
+      - preview-pages
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # Configure esta variável pública em Settings > Secrets and variables > Actions.
+  # A ausência de uma URL mantém a interface disponível, mas sem chamadas à API.
+  DEVPILOT_API_URL: ${{ vars.DEVPILOT_API_URL }}
+
+jobs:
+  build:
+    name: Preparar frontend estático
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Preparar e validar artefato estático
+        shell: bash
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          API_BASE_URL: ${{ env.DEVPILOT_API_URL }}
+        run: |
+          set -euo pipefail
+
+          source_dir=""
+          for candidate in frontend web public; do
+            if [[ -d "$candidate" ]] && find "$candidate" -type f -name '*.html' -print -quit | grep -q .; then
+              source_dir="$candidate"
+              break
+            fi
+          done
+
+          if [[ -z "$source_dir" && -d "app/templates" ]]; then
+            source_dir="app/templates"
+          fi
+
+          if [[ -z "$source_dir" ]]; then
+            echo "Nenhum frontend HTML encontrado em frontend/, web/, public/ ou app/templates/." >&2
+            exit 1
+          fi
+
+          if [[ -f "$source_dir/package.json" ]]; then
+            if [[ -f "$source_dir/package-lock.json" ]]; then
+              npm --prefix "$source_dir" ci
+            else
+              npm --prefix "$source_dir" install
+            fi
+            npm --prefix "$source_dir" run build
+
+            if [[ -d "$source_dir/dist" ]]; then
+              source_dir="$source_dir/dist"
+            elif [[ -d "$source_dir/build" ]]; then
+              source_dir="$source_dir/build"
+            fi
+          fi
+
+          rm -rf site
+          mkdir -p site
+          cp -a "$source_dir/." site/
+          if [[ "$source_dir" == "web" ]]; then
+            mkdir -p site/static
+            cp web/dashboard.css web/dashboard.js site/static/
+          fi
+
+          # O backend mantém templates e arquivos estáticos separados. No Pages,
+          # eles precisam formar uma única árvore pública e previsível.
+          if [[ "$source_dir" == "app/templates" && -d "app/static" ]]; then
+            mkdir -p site/static
+            cp -a app/static/. site/static/
+          fi
+
+          if [[ ! -f site/index.html && -f site/dashboard.html ]]; then
+            cp site/dashboard.html site/index.html
+          fi
+
+          if [[ ! -f site/index.html ]]; then
+            echo "O artefato precisa conter site/index.html ou dashboard.html." >&2
+            exit 1
+          fi
+
+          API_BASE_URL="${API_BASE_URL:-}" BASE_PATH="${BASE_PATH:-}" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          api_url = os.environ.get("API_BASE_URL", "").strip()
+          base_path = os.environ.get("BASE_PATH", "").rstrip("/")
+          config = {
+              "apiBaseUrl": api_url,
+              "basePath": base_path,
+          }
+          Path("site/config.js").write_text(
+              "window.DevPilotConfig = "
+              + json.dumps(config, ensure_ascii=False, separators=(",", ":"))
+              + ";\n",
+              encoding="utf-8",
+          )
+          PY
+
+          python - <<'PY'
+          import posixpath
+          import re
+          from pathlib import Path
+
+          root = Path("site").resolve()
+          script_re = re.compile(r'(<script\b[^>]*\bsrc=["\'])([^"\']+)(["\'][^>]*>)', re.I)
+          link_re = re.compile(r'(<link\b[^>]*\bhref=["\'])([^"\']+)(["\'][^>]*>)', re.I)
+          config_re = re.compile(r'<script\b[^>]*\bsrc=["\'][^"\']*config\.js[^"\']*["\'][^>]*>\s*</script>', re.I)
+
+          def local_asset(value: str, html_path: Path) -> str:
+              if value.startswith(("http://", "https://", "//", "data:", "mailto:", "#")):
+                  return value
+              if value.startswith("/static/"):
+                  target = Path("static") / value.removeprefix("/static/")
+              elif value.startswith("/config.js"):
+                  target = Path("config.js")
+              else:
+                  return value
+              relative = posixpath.relpath(target.as_posix(), html_path.parent.relative_to(root).as_posix() or ".")
+              return "./" + relative if not relative.startswith(".") else relative
+
+          for html_path in root.rglob("*.html"):
+              text = html_path.read_text(encoding="utf-8")
+              text = script_re.sub(lambda match: match.group(1) + local_asset(match.group(2), html_path) + match.group(3), text)
+              text = link_re.sub(lambda match: match.group(1) + local_asset(match.group(2), html_path) + match.group(3), text)
+              text = config_re.sub("", text)
+
+              config_target = Path("config.js")
+              config_relative = posixpath.relpath(config_target.as_posix(), html_path.parent.relative_to(root).as_posix() or ".")
+              config_src = "./" + config_relative if not config_relative.startswith(".") else config_relative
+              config_tag = f'<script src="{config_src}"></script>'
+
+              application = re.search(r'<script\b[^>]*\bsrc=["\'][^"\']*(?:dashboard|app)[^"\']*\.js[^"\']*["\'][^>]*>\s*</script>', text, re.I)
+              if application:
+                  text = text[:application.start()] + config_tag + "\n    " + text[application.start():]
+              elif re.search(r'</body>', text, re.I):
+                  text = re.sub(r'</body>', f"    {config_tag}\n</body>", text, count=1, flags=re.I)
+              else:
+                  text = config_tag + "\n" + text
+
+              html_path.write_text(text, encoding="utf-8")
+          PY
+
+          python - <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          site = Path("site")
+          required = (site / "index.html", site / "config.js", site / "static/dashboard.css", site / "static/dashboard.js")
+          missing = [str(path) for path in required if not path.is_file()]
+          if missing:
+              print("Arquivos obrigatórios ausentes: " + ", ".join(missing), file=sys.stderr)
+              sys.exit(1)
+
+          source_re = re.compile(r'<script\b[^>]*\bsrc=["\']([^"\']+)', re.I)
+          stylesheet_re = re.compile(r'<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref=["\']([^"\']+)', re.I)
+          for html in site.rglob("*.html"):
+              text = html.read_text(encoding="utf-8")
+              if "/static/" in text:
+                  print(f"Caminho absoluto de asset encontrado em {html}", file=sys.stderr)
+                  sys.exit(1)
+              references = source_re.findall(text) + stylesheet_re.findall(text)
+              for reference in references:
+                  if reference.startswith(("http://", "https://", "//", "data:")):
+                      continue
+                  target = (html.parent / reference.split("?", 1)[0].split("#", 1)[0]).resolve()
+                  if not target.is_file():
+                      print(f"Asset referenciado por {html} não encontrado: {reference}", file=sys.stderr)
+                      sys.exit(1)
+
+          html = (site / "index.html").read_text(encoding="utf-8")
+          config_position = html.find("config.js")
+          app_position = html.find("dashboard.js")
+          if config_position < 0 or app_position < 0 or config_position > app_position:
+              print("config.js deve ser carregado antes de dashboard.js.", file=sys.stderr)
+              sys.exit(1)
+          print("Estrutura do Pages validada: index.html, config.js, CSS e JS disponíveis.")
+          PY
+
+          touch site/.nojekyll
+
+      - name: Testar publicação em subpath
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/devpilot-pages-smoke
+          mkdir -p /tmp/devpilot-pages-smoke/devpilot-ai
+          cp -a site/. /tmp/devpilot-pages-smoke/devpilot-ai/
+          python -m http.server 8765 --directory /tmp/devpilot-pages-smoke >/tmp/devpilot-pages-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/index.html >/dev/null
+          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/static/dashboard.css >/dev/null
+          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/static/dashboard.js >/dev/null
+          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/config.js >/dev/null
+
+      - name: Publicar artefato do Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Publicar no GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Fazer deploy no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
