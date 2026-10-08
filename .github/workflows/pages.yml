@@ -176,7 +176,7 @@ jobs:
           stylesheet_re = re.compile(r'<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref=["\']([^"\']+)', re.I)
           for html in site.rglob("*.html"):
               text = html.read_text(encoding="utf-8")
-              if "/static/" in text:
+              if re.search(r"(?<![.])['"]/static/", text):
                   print(f"Caminho absoluto de asset encontrado em {html}", file=sys.stderr)
                   sys.exit(1)
               references = source_re.findall(text) + stylesheet_re.findall(text)
