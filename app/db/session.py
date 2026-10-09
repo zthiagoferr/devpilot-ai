@@ -1,12 +1,12 @@
 """Centralized SQLAlchemy async database lifecycle management.
 
-The engine and session factory are deliberately created on first use.  Importing
-this module never opens a connection or creates database objects.
+The engine and session factory are created on first use.  Importing this module
+never opens a connection or creates database objects.  The database URL comes
+from the single application configuration object (:class:`app.core.config.Settings`).
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Final
@@ -19,13 +19,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.core.config import get_settings
+
 
 DEFAULT_DEVELOPMENT_DATABASE_URL: Final[str] = "sqlite+aiosqlite:///./dev.db"
-
-# Kept as a public setting for applications and tests that configure the module
-# directly.  The environment is checked again when the engine is first used so
-# late environment configuration still works.
-DATABASE_URL: str | None = os.getenv("DATABASE_URL")
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -33,17 +30,24 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 def _environment() -> str:
     return (
-        os.getenv("ENVIRONMENT")
-        or os.getenv("APP_ENV")
-        or os.getenv("ENV")
+        get_settings().environment
         or "development"
     ).strip().lower()
 
 
+def _is_production() -> bool:
+    return _environment() in {"production", "prod"}
+
+
 def _configured_database_url() -> str:
-    value = os.getenv("DATABASE_URL") or DATABASE_URL
+    """Return the configured database URL, or the development default.
+
+    Production requires an explicit PostgreSQL URL.
+    """
+    value = get_settings().get_database_url()
+
     if not value:
-        if _environment() in {"production", "prod"}:
+        if _is_production():
             raise RuntimeError("DATABASE_URL must be configured in production.")
         value = DEFAULT_DEVELOPMENT_DATABASE_URL
 
@@ -62,7 +66,7 @@ def _normalise_and_validate_url(value: str) -> tuple[str, bool]:
     """
     try:
         parsed = make_url(value)
-    except Exception as exc:
+    except Exception:
         raise RuntimeError("DATABASE_URL is invalid.") from None
 
     driver = parsed.drivername.lower()
@@ -72,12 +76,13 @@ def _normalise_and_validate_url(value: str) -> tuple[str, bool]:
 
     is_postgresql = driver.startswith("postgresql+")
     is_sqlite = driver == "sqlite+aiosqlite"
-    production = _environment() in {"production", "prod"}
 
-    if production and not is_postgresql:
+    if _is_production() and not is_postgresql:
         raise RuntimeError("Production databases must use PostgreSQL.")
     if not is_postgresql and not is_sqlite:
-        raise RuntimeError("DATABASE_URL must use PostgreSQL or the safe development SQLite URL.")
+        raise RuntimeError(
+            "DATABASE_URL must use PostgreSQL or the safe development SQLite URL."
+        )
 
     return str(parsed), is_postgresql
 

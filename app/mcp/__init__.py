@@ -1,4 +1,6 @@
-from app.mcp.client import MCPClient
-from app.mcp.server import MCPServerAdapter, create_mcp_server
+"""MCP integration over the canonical tool registry."""
 
-__all__ = ["MCPClient", "MCPServerAdapter", "create_mcp_server"]
+from app.mcp.client import MCPClient
+from app.mcp.server import create_mcp_server
+
+__all__ = ["MCPClient", "create_mcp_server"]

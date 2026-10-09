@@ -127,7 +127,10 @@ async def test_list_files_tool_excludes_symlink_to_file_outside_project_root(tmp
     outside_file = tmp_path / "outside.txt"
     outside_file.write_text("outside project")
     (project_root / "inside.txt").write_text("inside project")
-    (project_root / "outside-link.txt").symlink_to(outside_file)
+    try:
+        (project_root / "outside-link.txt").symlink_to(outside_file)
+    except (OSError, NotImplementedError):
+        pytest.skip("This platform does not permit creating symlinks.")
 
     tool = ListFilesTool(project_root=project_root)
 
@@ -148,6 +151,7 @@ from app.tools import (
     create_default_project_registry,
 )
 from app.tools.base import BaseTool
+from app.agents.base import BaseAgent
 
 
 class _EchoTool(BaseTool):
@@ -341,3 +345,28 @@ def test_default_project_registries_are_fresh_and_isolated(tmp_path):
     assert first.lookup("echo_test") is not None
     assert second.lookup("echo_test") is None
 
+
+class _EchoAgent(BaseAgent):
+    def __init__(self, registry: ToolRegistry) -> None:
+        super().__init__(
+            name="echo_agent",
+            responsibility="Invoke a registered tool.",
+            tool_registry=registry,
+        )
+
+    async def execute(self, context: dict[str, Any]) -> dict[str, Any]:
+        return {"agent": self.name}
+
+
+@pytest.mark.asyncio
+async def test_base_agent_invokes_registered_tool_and_rejects_unknown():
+    registry = ToolRegistry()
+    registry.register(_EchoTool())
+    agent = _EchoAgent(registry)
+
+    result = await agent.invoke_tool("echo_test", {"value": "ok"})
+
+    assert result.output == {"value": "ok"}
+
+    with pytest.raises(ValueError):
+        await agent.invoke_tool("missing")

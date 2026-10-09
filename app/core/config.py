@@ -52,10 +52,6 @@ class Settings(BaseSettings):
             return None
         return self.database_url.get_secret_value()
 
-    def _get_database_url(self) -> str | None:
-        """Internal alias for obtaining the database URL."""
-        return self.get_database_url()
-
 
 @lru_cache
 def get_settings() -> Settings:

@@ -132,7 +132,7 @@ cd devpilot-ai
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\\Scripts\\activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements.txt
 ```
 
 Set the environment for a lightweight local run:
@@ -159,7 +159,7 @@ Useful local URLs:
 
 ## Docker and Compose
 
-The repository includes a `Dockerfile` for building the application image and `docker-compose.yml` for running the application with PostgreSQL. Compose runs **Alembic migrations before application startup**, so the database schema is updated before the API process begins.
+The repository includes a `Dockerfile` for building the application image and `compose.yaml` for running the application with PostgreSQL. Compose runs **Alembic migrations before application startup**, so the database schema is updated before the API process begins.
 
 ```bash
 docker compose up --build

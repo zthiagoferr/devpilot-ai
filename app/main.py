@@ -9,12 +9,8 @@ from sqlalchemy import text
 from app.api.agents import router as agents_router
 from app.api.analysis import router as analysis_router
 from app.api.dashboard import router as dashboard_router
+from app.api.github import router as github_router
 from app.db import session
-
-try:
-    from app.api.github import router as github_router
-except ModuleNotFoundError:
-    github_router = None
 
 
 @asynccontextmanager
@@ -33,9 +29,7 @@ app = FastAPI(
 app.include_router(agents_router)
 app.include_router(analysis_router)
 app.include_router(dashboard_router)
-
-if github_router is not None:
-    app.include_router(github_router)
+app.include_router(github_router)
 
 
 project_root = Path(__file__).resolve().parent.parent
