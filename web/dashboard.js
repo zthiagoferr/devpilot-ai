@@ -227,16 +227,15 @@
     many(".history-row, .history-item", list).forEach(function (item) { item.remove(); });
     items.forEach(function (item) {
       var project = text(item.project_name || item.name, "Projeto sem nome"), result = resultOf(item);
-      var status = statusLabel(item.status || result.status), score = text(result.score !== undefined ? result.score : item.score, "—");
+      var score = text(result.score !== undefined ? result.score : item.score, "—");
       var row = document.createElement(table ? "tr" : "li"); row.className = "history-row";
       var button = document.createElement("button"); button.type = "button"; button.className = "history-item__button";
       button.dataset.analysisId = text(item.id); button.textContent = project; button.setAttribute("aria-label", "Abrir análise de " + project);
       if (String(item.id) === String(state.selectedId)) button.classList.add("is-selected");
       if (table) {
-        [button, text(item.repository_url || item.source, "Manual"), score, status].forEach(function (value, index) {
+        [button, text(item.repository_url || item.source, "Manual"), formatDate(dateOf(item)), score].forEach(function (value, index) {
           var cell = document.createElement("td");
           if (index === 0) cell.appendChild(value); else cell.textContent = value;
-          if (index === 3) { cell.dataset.status = statusKey(status); cell.className = "history-status"; }
           row.appendChild(cell);
         });
         var actionCell = document.createElement("td"), action = document.createElement("button");

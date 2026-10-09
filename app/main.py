@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -9,13 +10,45 @@ from sqlalchemy import text
 from app.api.agents import router as agents_router
 from app.api.analysis import router as analysis_router
 from app.api.dashboard import router as dashboard_router
-from app.api.github import router as github_router
+from app.core.config import get_settings
 from app.db import session
+
+try:
+    from app.api.github import router as github_router
+except ModuleNotFoundError:
+    github_router = None
+
+
+logger = logging.getLogger("devpilot")
+
+
+def _configure_logging() -> int:
+    """Configure root logging from settings and return the effective level."""
+    settings = get_settings()
+    level_name = settings.log_level.strip().upper()
+    level = getattr(logging, level_name, None)
+    if not isinstance(level, int):
+        level = logging.INFO
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-5.5s [%(name)s] %(message)s",
+    )
+    logging.getLogger().setLevel(level)
+    return level
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    _configure_logging()
+    logger.info(
+        "Starting DevPilot AI (environment=%s, database_configured=%s)",
+        settings.environment,
+        settings.get_database_url() is not None,
+    )
     yield
+    logger.info("Shutting down DevPilot AI")
     await session.dispose_engine()
 
 
@@ -29,7 +62,9 @@ app = FastAPI(
 app.include_router(agents_router)
 app.include_router(analysis_router)
 app.include_router(dashboard_router)
-app.include_router(github_router)
+
+if github_router is not None:
+    app.include_router(github_router)
 
 
 project_root = Path(__file__).resolve().parent.parent

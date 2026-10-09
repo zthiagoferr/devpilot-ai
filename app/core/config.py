@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     github_token: _ComparableSecretStr | None = None
     github_api_base_url: str = "https://api.github.com"
     database_url: _ComparableSecretStr | None = None
+    log_level: str = "INFO"
+    frontend_origins: str = ""
+    llm_timeout_seconds: float = 30.0
+    max_source_code_bytes: int = 1_000_000
+    github_max_files: int = 1_000
+    github_max_file_bytes: int = 1_000_000
+    github_max_total_bytes: int = 5_000_000
 
     model_config = SettingsConfigDict(
         env_file=".env",
