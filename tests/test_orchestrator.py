@@ -402,4 +402,3 @@ def test_v5_registries_do_not_require_a_module_global_mutable_registry() -> None
 
     assert first.lookup("injected_echo") is not None
     assert second.lookup("injected_echo") is None
-

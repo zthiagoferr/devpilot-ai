@@ -2,45 +2,7 @@ from abc import ABC, abstractmethod
 import inspect
 from typing import Any
 
-try:
-    from app.tools.registry import ToolRegistry
-except ImportError:  # pragma: no cover - compatibility for minimal installations
-    class ToolRegistry:
-        """Small fallback registry used when the tools package is unavailable."""
-
-        def __init__(self) -> None:
-            self._tools: dict[str, Any] = {}
-
-        def register(self, name: str, tool: Any) -> None:
-            self._tools[name] = tool
-
-        def list_tools(self) -> list[str]:
-            return list(self._tools)
-
-        def get_tool(self, name: str) -> Any | None:
-            return self._tools.get(name)
-
-try:
-    from app.tools.executor import ToolExecutor
-except ImportError:  # pragma: no cover - compatibility for minimal installations
-    class ToolExecutor:
-        """Small fallback executor used when the tools package is unavailable."""
-
-        def __init__(self, registry: ToolRegistry) -> None:
-            self.registry = registry
-
-        async def execute(
-            self,
-            name: str,
-            arguments: dict[str, Any] | None = None,
-        ) -> Any:
-            tool = self.registry.get_tool(name)
-            if tool is None:
-                raise ValueError(f"Tool is not registered: {name}")
-            result = tool(**(arguments or {}))
-            if inspect.isawaitable(result):
-                return await result
-            return result
+from app.tools.base import ToolExecutor, ToolRegistry
 
 
 class BaseAgent(ABC):
@@ -129,14 +91,7 @@ class BaseAgent(ABC):
 
         params = dict(arguments or {})
         params.update(kwargs)
-        executor = self.tool_executor
-        method = getattr(executor, "execute", None)
-        if not callable(method):
-            method = getattr(executor, "invoke", None)
-        if not callable(method):
-            raise TypeError("Tool executor must provide execute() or invoke()")
-
-        result = method(name, params)
+        result = self.tool_executor.execute(name, **params)
         if inspect.isawaitable(result):
             return await result
         return result

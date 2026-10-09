@@ -309,7 +309,7 @@
   function formValues(form) { var values = {}; new FormData(form).forEach(function (value, key) { values[key] = value; }); return values; }
 
   function createAnalysis(values) {
-    var body = { task: text(values.task, "code_analysis").trim(), project_name: text(values.project_name).trim(), source_code: text(values.source_code) };
+    var body = { task: text(values.task, "code").trim(), project_name: text(values.project_name).trim(), source_code: text(values.source_code) };
     if (!body.task || !body.project_name || !body.source_code.trim()) return Promise.reject(new Error("Informe a tarefa, o nome do projeto e o código-fonte."));
     ["repository_url", "branch", "file_path"].forEach(function (key) { if (values[key]) body[key] = String(values[key]); });
     return request(CONTRACT.create.path, jsonOptions(CONTRACT.create.method, body));

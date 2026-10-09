@@ -3,7 +3,15 @@ from fastapi.testclient import TestClient
 
 import app.main
 import app.db.session as database_session
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
+
+
+@pytest.fixture(autouse=True)
+def _fresh_settings():
+    """Ensure settings are re-read from the environment for each test."""
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def test_readiness_returns_ready_when_database_is_available(
@@ -74,7 +82,6 @@ def test_production_requires_database_url(
 ) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setattr(database_session, "DATABASE_URL", None)
 
     with pytest.raises(RuntimeError):
         database_session._configured_database_url()

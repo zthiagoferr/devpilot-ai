@@ -1,9 +1,16 @@
-"""Database models for persisted analysis records."""
+"""Database models for persisted analysis records.
+
+The :class:`Analysis` model is the single canonical representation of a stored
+analysis.  Every layer (migration, repository, service, schema and API) must
+use exactly these fields.  The column types are deliberately database-neutral
+(``Uuid``/``JSON``) so the same model works unchanged on PostgreSQL (production)
+and on SQLite (local development and tests).
+"""
 
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import DateTime, JSON, String, Uuid, func
+from sqlalchemy import DateTime, JSON, String, Text, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -26,30 +33,29 @@ class Analysis(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    repository_id: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        index=True,
-    )
     task: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
         index=True,
     )
-    analysis_type: Mapped[str] = mapped_column(
-        String(100),
+    project_name: Mapped[str] = mapped_column(
+        String(255),
         nullable=False,
         index=True,
     )
-    status: Mapped[str] = mapped_column(
-        String(50),
+    source_code: Mapped[str] = mapped_column(
+        Text,
         nullable=False,
-        default="pending",
-        index=True,
     )
     result: Mapped[dict | list | None] = mapped_column(
         JSON,
         nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="completed",
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

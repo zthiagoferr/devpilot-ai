@@ -1,8 +1,51 @@
+"""Pydantic schemas for analysis requests, results and persisted records.
+
+The persisted record contract (:class:`AnalysisCreate` / :class:`AnalysisResponse`)
+must mirror :class:`app.db.models.Analysis` exactly.
+"""
+
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class AnalysisCreate(BaseModel):
+    """Request body used to run and persist an analysis."""
+
+    task: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Analysis task to run (for example 'code', 'tests', 'docs' or 'full_analysis').",
+    )
+    project_name: str = Field(
+        min_length=1,
+        max_length=255,
+        description="Name of the project being analyzed.",
+    )
+    source_code: str = Field(
+        min_length=1,
+        description="Python source code to analyze.",
+    )
+    model_config = ConfigDict(extra="ignore")
+
+
+class AnalysisResponse(BaseModel):
+    """Representation of an analysis loaded from persistence."""
+
+    id: UUID
+    task: str = Field(min_length=1)
+    project_name: str = Field(min_length=1)
+    source_code: str = Field(min_length=1)
+    result: dict[str, Any] | list[Any] | None = None
+    status: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Single-code-agent endpoints (app.api.agents) -------------------------
 
 
 class CodeAnalysisRequest(BaseModel):
@@ -31,10 +74,6 @@ class AnalysisRequest(BaseModel):
     )
 
 
-class AnalysisCreateRequest(AnalysisRequest):
-    """Request body used to create and persist an analysis."""
-
-
 class AnalysisIssue(BaseModel):
     severity: str
     message: str
@@ -61,35 +100,3 @@ class OrchestratorResponse(BaseModel):
     delegated_to: str | list[str] | None = None
     result: dict[str, Any] | None = None
     message: str | None = None
-
-
-class AnalysisResponse(BaseModel):
-    """Representation of an analysis loaded from persistence."""
-
-    id: UUID
-    task: str = Field(min_length=1)
-    project_name: str = Field(min_length=1)
-    source_code: str = Field(min_length=1)
-    result: dict[str, Any] | None = None
-    status: str | None = None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class AnalysisHistoryQuery(BaseModel):
-    """Parameters for retrieving a bounded page of analysis history."""
-
-    limit: int = Field(
-        default=20,
-        ge=1,
-        le=100,
-        description="Maximum number of analyses to return.",
-    )
-
-
-AnalysisCreate = AnalysisCreateRequest
-AnalysisRead = AnalysisResponse
-PersistedAnalysisResponse = AnalysisResponse
-AnalysisHistoryRequest = AnalysisHistoryQuery
-AnalysisListQuery = AnalysisHistoryQuery

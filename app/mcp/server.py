@@ -1,144 +1,91 @@
-"""Transport-independent MCP integration for explicitly registered DevPilot tools."""
+"""Transport-independent MCP integration for explicitly registered DevPilot tools.
+
+The server is built from the canonical :class:`app.tools.ToolRegistry`.  Each
+registry tool is registered on the official MCP SDK ``MCPServer`` with an input
+schema derived from the tool's own JSON schema, and calls are delegated to
+``ToolExecutor`` so its sanitized failure semantics remain the single source of
+truth for tool execution.
+"""
 
 from __future__ import annotations
 
-import json
+import inspect
 from collections.abc import Mapping
-from copy import deepcopy
 from typing import Any
 
 from mcp.server import MCPServer
-from mcp.types import TextContent, Tool
 
 from app.tools import ToolExecutor, ToolRegistry
 
 
 _SERVER_NAME = "devpilot"
 
-
-def _json_safe(value: Any) -> Any:
-    """Return a JSON-safe value without exposing implementation details."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Mapping):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, set):
-        return [_json_safe(item) for item in sorted(value, key=str)]
-    return None
+_TYPE_MAP: dict[str, Any] = {
+    "string": str,
+    "integer": int,
+    "number": float,
+    "boolean": bool,
+    "object": dict,
+    "array": list,
+}
 
 
-def _safe_json_text(value: Any) -> str:
-    """Serialize a structured result without serializing arbitrary objects."""
-    safe_value = _json_safe(value)
-    try:
-        return json.dumps(safe_value, sort_keys=True, separators=(",", ":"))
-    except (TypeError, ValueError, OverflowError):
-        return json.dumps(
-            {"status": "failed", "error": "Tool result could not be serialized."},
-            sort_keys=True,
-            separators=(",", ":"),
+def _build_signature(input_schema: Mapping[str, Any]) -> inspect.Signature:
+    """Build a keyword-only signature from a tool's JSON input schema.
+
+    The MCP SDK derives the advertised input schema from the handler's
+    signature, so this preserves the reviewed parameter names and required
+    flags instead of exposing a generic ``**kwargs`` tool.
+    """
+    properties = input_schema.get("properties")
+    if not isinstance(properties, Mapping):
+        properties = {}
+    required = input_schema.get("required")
+    required_names = set(required) if isinstance(required, (list, tuple)) else set()
+
+    parameters: list[inspect.Parameter] = []
+    for name, specification in properties.items():
+        if not isinstance(name, str) or not name.isidentifier():
+            raise ValueError(f"Tool schema contains an invalid parameter name: {name!r}")
+        spec = specification if isinstance(specification, Mapping) else {}
+        annotation = _TYPE_MAP.get(spec.get("type"), Any)
+        default = (
+            inspect.Parameter.empty if name in required_names else None
         )
-
-
-def _tool_metadata(registry: ToolRegistry) -> tuple[dict[str, Any], ...]:
-    """Take an immutable, JSON-safe snapshot of the registry's tool metadata."""
-    metadata: list[dict[str, Any]] = []
-    for item in registry.discovery_metadata():
-        if not isinstance(item, Mapping):
-            continue
-
-        name = item.get("name")
-        if not isinstance(name, str) or not name:
-            continue
-
-        description = item.get("description", "")
-        if not isinstance(description, str):
-            description = ""
-
-        schema = item.get("input_schema", item.get("inputSchema"))
-        if not isinstance(schema, Mapping):
-            schema = {"type": "object", "properties": {}}
-
-        safe_schema = _json_safe(deepcopy(dict(schema)))
-        if not isinstance(safe_schema, dict):
-            safe_schema = {"type": "object", "properties": {}}
-
-        metadata.append(
-            {
-                "name": name,
-                "description": description,
-                "input_schema": safe_schema,
-            }
+        parameters.append(
+            inspect.Parameter(
+                name,
+                inspect.Parameter.KEYWORD_ONLY,
+                default=default,
+                annotation=annotation,
+            )
         )
-
-    metadata.sort(key=lambda item: item["name"])
-    return tuple(metadata)
+    return inspect.Signature(parameters)
 
 
 def create_mcp_server(tool_registry: ToolRegistry) -> MCPServer:
-    """Create an MCP server backed by the supplied canonical tool registry.
-
-    The registry is supplied by the application and is never replaced or
-    mutated here.  The server exposes the tools present when it is created.
-    Calls are delegated to ``ToolExecutor`` so its sanitized failure semantics
-    remain the single source of truth for tool execution.
-    """
+    """Create an MCP server backed by the supplied canonical tool registry."""
     if not isinstance(tool_registry, ToolRegistry):
         raise TypeError("tool_registry must be a ToolRegistry.")
 
-    metadata = _tool_metadata(tool_registry)
-    exposed_names = frozenset(item["name"] for item in metadata)
     executor = ToolExecutor(tool_registry)
     server = MCPServer(_SERVER_NAME)
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name=item["name"],
-                description=item["description"],
-                inputSchema=item["input_schema"],
-            )
-            for item in metadata
-        ]
+    for metadata in tool_registry.discovery_metadata():
+        name = metadata["name"]
+        description = metadata.get("description", "")
+        schema = metadata.get("input_schema") or {"type": "object", "properties": {}}
 
-    @server.call_tool()
-    async def call_tool(
-        name: str,
-        arguments: dict[str, Any] | None = None,
-    ) -> list[TextContent]:
-        if not isinstance(name, str) or name not in exposed_names:
-            result: dict[str, Any] = {
-                "status": "failed",
-                "error": "Tool is not registered.",
-            }
-        elif arguments is not None and not isinstance(arguments, dict):
-            result = {
-                "status": "failed",
-                "error": "Invalid tool arguments.",
-            }
-        else:
-            try:
-                execution = await executor.execute(name, **(arguments or {}))
-                result = execution.to_dict()
-            except Exception:
-                result = {
-                    "status": "failed",
-                    "error": "Tool execution failed.",
-                }
+        def make_handler(tool_name: str):
+            async def handler(**kwargs: Any) -> dict[str, Any]:
+                execution = await executor.execute(tool_name, **kwargs)
+                return execution.to_dict()
 
-        return [TextContent(type="text", text=_safe_json_text(result))]
+            return handler
+
+        handler = make_handler(name)
+        handler.__name__ = name
+        handler.__signature__ = _build_signature(schema)  # type: ignore[attr-defined]
+        server.add_tool(handler, name=name, description=description)
 
     return server
-
-
-# Explicit aliases provide descriptive construction names without creating a
-# server or registry at import time.
-def build_mcp_server(tool_registry: ToolRegistry) -> MCPServer:
-    return create_mcp_server(tool_registry)
-
-
-def create_server(tool_registry: ToolRegistry) -> MCPServer:
-    return create_mcp_server(tool_registry)

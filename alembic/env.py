@@ -1,87 +1,41 @@
 """Alembic environment configuration.
 
-The persistence metadata is imported without importing the application entrypoint or
-creating a database engine. Engines are created only when online migrations run.
+The persistence metadata is imported directly from the application models, and
+the database URL comes from the same configuration object the application uses
+(:mod:`app.core.config` / :mod:`app.db.session`).  Engines are created only when
+online migrations run.
 """
 
 from __future__ import annotations
 
 import asyncio
-import importlib
-from typing import Any
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.db.models import Base
+from app.db.session import _configured_database_url, _normalise_and_validate_url
+
 
 config = context.config
 
-
-def _load_metadata() -> Any:
-    """Load the persistence metadata without initializing a database connection."""
-    metadata = None
-    base = None
-
-    for module_name in (
-        "app.persistence.database",
-        "app.persistence.base",
-        "app.persistence.models",
-    ):
-        try:
-            module = importlib.import_module(module_name)
-        except ModuleNotFoundError as exc:
-            if exc.name != module_name:
-                raise
-            continue
-
-        if base is None:
-            base = getattr(module, "Base", None)
-        metadata = getattr(module, "metadata", metadata)
-        metadata = getattr(module, "target_metadata", metadata)
-
-        if base is not None and hasattr(base, "metadata"):
-            metadata = base.metadata
-            break
-
-    if metadata is None:
-        raise ImportError(
-            "Could not locate persistence metadata. Expected a Base.metadata "
-            "or metadata object in app.persistence."
-        )
-
-    return metadata
+target_metadata = Base.metadata
 
 
 def _get_database_url() -> str:
-    """Return the unredacted database URL used by Alembic."""
-    config_module = importlib.import_module("app.core.config")
-    get_settings = getattr(config_module, "get_settings")
-
-    try:
-        settings = get_settings(redact_secrets=False)
-    except TypeError:
-        settings = get_settings()
-
-    accessor = getattr(settings, "get_database_url", None)
-    if accessor is not None:
-        try:
-            return str(accessor(redact=False))
-        except TypeError:
-            return str(accessor())
-
-    return str(settings.database_url)
+    """Return the async database URL used by the application."""
+    configured = _configured_database_url()
+    url, _ = _normalise_and_validate_url(configured)
+    return url
 
 
 def _configure_database_url() -> None:
-    """Put the settings URL into Alembic's configuration."""
+    """Put the application database URL into Alembic's configuration."""
     url = _get_database_url()
     # ConfigParser interpolation treats percent signs specially.
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
-
-
-target_metadata = _load_metadata()
 
 
 def run_migrations_offline() -> None:

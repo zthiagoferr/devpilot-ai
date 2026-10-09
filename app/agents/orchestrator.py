@@ -1,4 +1,3 @@
-import importlib
 import inspect
 from typing import Any
 
@@ -11,37 +10,7 @@ from app.agents.insights_agent import InsightsAgent
 from app.agents.planning_agent import PlanningAgent
 from app.agents.report_agent import ReportAgent
 from app.agents.test_agent import TestAgent
-
-
-class _LocalToolRegistry:
-    """Small per-runtime registry used when the V5 registry is unavailable.
-
-    The registry intentionally has no module-level state.  It provides the
-    minimal registry protocol needed by callers that inject tools in tests or
-    by an orchestration runtime that does not install the full V5 registry.
-    """
-
-    def __init__(self) -> None:
-        self._tools: dict[str, Any] = {}
-
-    def register(self, tool: Any) -> Any:
-        name = getattr(tool, "name", None)
-        if not name:
-            raise ValueError("A tool must provide a name.")
-        self._tools[str(name)] = tool
-        return tool
-
-    def get(self, name: str, default: Any = None) -> Any:
-        return self._tools.get(name, default)
-
-    def get_tool(self, name: str, default: Any = None) -> Any:
-        return self.get(name, default)
-
-    def all(self) -> dict[str, Any]:
-        return dict(self._tools)
-
-    def list_tools(self) -> list[Any]:
-        return list(self._tools.values())
+from app.tools import ToolRegistry, create_default_project_registry
 
 
 def _dependency_value(dependencies: Any, name: str) -> Any:
@@ -53,58 +22,28 @@ def _dependency_value(dependencies: Any, name: str) -> Any:
 
 
 def _create_project_tool_registry(dependencies: Any = None) -> Any:
-    """Create a new approved project registry for one orchestration flow."""
+    """Create an approved project registry for one orchestration flow.
+
+    A caller may inject a registry, inject a factory, or inject a project root.
+    Without any of these the orchestrator uses an empty registry, since the
+    analysis agents (code/tests/docs/report) do not require tools.
+    """
     supplied = _dependency_value(dependencies, "tool_registry")
     if supplied is not None:
         return supplied
 
     factory = _dependency_value(dependencies, "create_tool_registry")
     project_root = _dependency_value(dependencies, "project_root")
+
     if callable(factory):
-        try:
+        if project_root is not None:
             return factory(project_root=project_root)
-        except TypeError:
-            return factory()
+        return factory()
 
-    # V5 has used both registry module names while being introduced.  Keep
-    # this lookup local so importing the orchestrator does not create or share
-    # a process-wide registry.
-    for module_name in ("app.tools.registry", "app.tools.tool_registry"):
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError:
-            continue
+    if project_root is not None:
+        return create_default_project_registry(project_root)
 
-        for factory_name in (
-            "create_project_tool_registry",
-            "create_approved_project_tool_registry",
-            "create_approved_tool_registry",
-        ):
-            candidate = getattr(module, factory_name, None)
-            if not callable(candidate):
-                continue
-            try:
-                if project_root is not None:
-                    return candidate(project_root=project_root)
-                return candidate()
-            except TypeError:
-                return candidate()
-
-        registry_type = getattr(module, "ToolRegistry", None)
-        if registry_type is not None:
-            try:
-                registry = registry_type()
-            except TypeError:
-                if project_root is None:
-                    continue
-                registry = registry_type(project_root=project_root)
-            approved = getattr(module, "approved_project_tools", None)
-            if callable(approved):
-                for tool in approved(project_root=project_root):
-                    registry.register(tool)
-            return registry
-
-    return _LocalToolRegistry()
+    return ToolRegistry()
 
 
 def _construct_agent(agent_type: Any, dependencies: Any, tool_registry: Any) -> Any:

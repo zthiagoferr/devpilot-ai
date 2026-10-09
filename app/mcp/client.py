@@ -139,11 +139,12 @@ class MCPClient:
             raise RuntimeError("The MCP client is closed.")
         if self._initialized:
             return
-        initialize = getattr(self.client, "initialize", None)
-        if callable(initialize):
-            result = initialize()
-            if inspect.isawaitable(result):
-                await result
+        client = self.client
+        # The official SDK ``Client`` connects through its async context
+        # manager; entering it establishes the in-process transport.
+        enter = getattr(client, "__aenter__", None)
+        if callable(enter):
+            await enter()
         self._initialized = True
 
     async def discover_tools(self) -> list[dict[str, Any]] | dict[str, Any]:
@@ -187,13 +188,12 @@ class MCPClient:
         if self._client is None or self._closed:
             self._closed = True
             return
-        for method_name in ("close", "shutdown", "disconnect"):
-            method = getattr(self.client, method_name, None)
-            if callable(method):
-                result = method()
+        if self._initialized:
+            exit_ = getattr(self.client, "__aexit__", None)
+            if callable(exit_):
+                result = exit_(None, None, None)
                 if inspect.isawaitable(result):
                     await result
-                break
         self._closed = True
 
     async def __aenter__(self) -> "MCPClient":

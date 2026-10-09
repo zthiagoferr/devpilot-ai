@@ -159,6 +159,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local databases (never commit development/test data)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
 # Spyder project settings
 .spyderproject
 .spyproject

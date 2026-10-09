@@ -18,12 +18,6 @@ RUN_TESTS_INPUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-RUN_TESTS_METADATA: dict[str, Any] = {
-    "name": "run_tests",
-    "description": "Run the project test suite with pytest.",
-    "input_schema": RUN_TESTS_INPUT_SCHEMA,
-}
-
 # A test run must not be allowed to consume an unbounded amount of time.
 TEST_TIMEOUT_SECONDS = 120
 
@@ -39,7 +33,6 @@ class RunTestsTool(BaseTool):
     description = "Run the project test suite with pytest."
     input_schema = RUN_TESTS_INPUT_SCHEMA
     schema = RUN_TESTS_INPUT_SCHEMA
-    metadata = RUN_TESTS_METADATA
 
     def __init__(self, project_root: Path) -> None:
         super().__init__(
@@ -48,11 +41,10 @@ class RunTestsTool(BaseTool):
         )
         self._project_root = Path(project_root).resolve()
 
-        # Keep these available on the instance as well as the class so the
+        # Keep the schema available on the instance as well as the class so the
         # tool can be consumed by registries that inspect instances only.
         self.input_schema = RUN_TESTS_INPUT_SCHEMA
         self.schema = RUN_TESTS_INPUT_SCHEMA
-        self.metadata = RUN_TESTS_METADATA
 
     def get_metadata(self) -> dict[str, Any]:
         """Return the V5 tool metadata without exposing mutable internals."""
@@ -121,21 +113,16 @@ class RunTestsTool(BaseTool):
             )
         except asyncio.TimeoutError:
             try:
-                process.kill()  # type: ignore[possibly-undefined]
-                await process.communicate()  # type: ignore[possibly-undefined]
+                process.kill()
+                await process.communicate()
             except (AttributeError, OSError):
                 pass
             return self._error(
                 "timeout",
                 "The test suite exceeded its execution time limit.",
             )
-        except (OSError, asyncio.CancelledError):
-            if isinstance(_, asyncio.CancelledError):
-                raise
-            return self._error(
-                "execution_error",
-                "Unable to execute the test suite.",
-            )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             return self._error(
                 "execution_error",

@@ -1,406 +1,171 @@
-from datetime import datetime, timezone
-from typing import Any
-from uuid import UUID
+"""API tests against the real service, repository and database.
 
+The only thing replaced is the request-scoped database session (a standard
+FastAPI testing technique).  The service, repository, schemas and orchestrator
+are the production implementations, backed by an in-memory SQLite database.
+Requests run through ``httpx.ASGITransport`` inside the same event loop as the
+database fixture.
+"""
+
+from uuid import UUID, uuid4
+
+import pytest
+import pytest_asyncio
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
-from app.api.analysis import get_analysis_service
 from app.api.analysis import router as analysis_router
-from app.main import app
+from app.db.models import Base
+from app.db.session import get_db_session
 
 
-client = TestClient(app)
+@pytest_asyncio.fixture
+async def client():
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
 
-
-def test_orchestrator_status() -> None:
-    response = client.get("/agents/orchestrator")
-
-    assert response.status_code == 200
-
-    data = response.json()
-
-    assert data == {
-        "agent": "orchestrator",
-        "responsibility": "Coordinate and route tasks to specialized agents.",
-        "status": "ready",
-    }
-
-
-def test_code_analysis_endpoint() -> None:
-    response = client.post(
-        "/agents/code",
-        json={
-            "project_name": "devpilot-ai",
-            "source_code": "def hello():\n    return 'hello'\n",
-        },
+    session_factory = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
     )
 
-    assert response.status_code == 200
+    async def override_get_db_session():
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
 
-    data = response.json()
-
-    assert data["agent"] == "code_agent"
-    assert data["project_name"] == "devpilot-ai"
-    assert data["score"] == 100
-    assert data["issues"] == []
-
-
-def test_orchestrate_full_analysis() -> None:
-    response = client.post(
-        "/agents/orchestrate",
-        json={
-            "task": "full_analysis",
-            "project_name": "devpilot-ai",
-            "source_code": (
-                "def test_health():\n"
-                '    """Test application health."""\n'
-                "    assert True\n"
-            ),
-        },
-    )
-
-    assert response.status_code == 200
-
-    data = response.json()
-
-    assert data["agent"] == "orchestrator"
-    assert data["status"] == "completed"
-
-    assert data["delegated_to"] == [
-        "code_agent",
-        "test_agent",
-        "docs_agent",
-        "report_agent",
-    ]
-
-    report = data["result"]["report"]
-
-    assert report["agent"] == "report_agent"
-    assert report["overall_score"] == 100
-    assert report["total_issues"] == 0
-
-
-def test_orchestrate_rejects_empty_project_name() -> None:
-    response = client.post(
-        "/agents/orchestrate",
-        json={
-            "task": "code",
-            "project_name": "",
-            "source_code": "print('hello')",
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_orchestrate_rejects_missing_source_code() -> None:
-    response = client.post(
-        "/agents/orchestrate",
-        json={
-            "task": "code",
-            "project_name": "devpilot-ai",
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_orchestrate_rejects_unknown_task() -> None:
-    response = client.post(
-        "/agents/orchestrate",
-        json={
-            "task": "security",
-            "project_name": "devpilot-ai",
-            "source_code": "print('hello')",
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json() == {
-        "detail": "No agent available for task: security"
-    }
-
-
-CREATED_ID = UUID("11111111-1111-4111-8111-111111111111")
-SECOND_ID = UUID("22222222-2222-4222-8222-222222222222")
-CREATED_AT = datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=timezone.utc)
-SECOND_CREATED_AT = datetime(2024, 1, 1, 3, 4, 5, 123456, tzinfo=timezone.utc)
-
-
-def _record(
-    record_id: UUID,
-    task: str,
-    project_name: str,
-    source_code: str,
-    created_at: datetime,
-) -> dict[str, Any]:
-    result = {
-        "score": 100,
-        "issues": [],
-        "summary": "No issues found.",
-    }
-    return {
-        "id": record_id,
-        "task": task,
-        "project_name": project_name,
-        "source_code": source_code,
-        "analysis_result": result,
-        "result": result,
-        "created_at": created_at,
-    }
-
-
-class FakeAnalysisService:
-    def __init__(self) -> None:
-        self.records = [
-            _record(
-                CREATED_ID,
-                "code_analysis",
-                "new-project",
-                "def newest():\n    return True\n",
-                CREATED_AT,
-            ),
-            _record(
-                SECOND_ID,
-                "code_analysis",
-                "old-project",
-                "def older():\n    return False\n",
-                SECOND_CREATED_AT,
-            ),
-        ]
-        self.requested_limits: list[int] = []
-        self.created_requests: list[dict[str, Any]] = []
-
-    async def create_analysis(self, analysis: Any) -> dict[str, Any]:
-        if hasattr(analysis, "model_dump"):
-            values = analysis.model_dump()
-        else:
-            values = dict(analysis)
-        self.created_requests.append(values)
-        record = self.records[0].copy()
-        record.update(
-            {
-                "task": values["task"],
-                "project_name": values["project_name"],
-                "source_code": values["source_code"],
-            }
-        )
-        return record
-
-    async def list_analyses(self, limit: int = 20) -> list[dict[str, Any]]:
-        self.requested_limits.append(limit)
-        return sorted(
-            self.records,
-            key=lambda record: record["created_at"],
-            reverse=True,
-        )[:limit]
-
-    async def get_analysis(self, analysis_id: UUID) -> dict[str, Any] | None:
-        return next(
-            (
-                record
-                for record in self.records
-                if record["id"] == analysis_id
-            ),
-            None,
-        )
-
-    def __getattr__(self, name: str) -> Any:
-        if name in {"create", "save"}:
-            return self.create_analysis
-        if name in {"list", "get_all", "get_recent_analyses"}:
-            return self.list_analyses
-        if name in {"get", "find_by_id", "get_analysis_by_id"}:
-            return self.get_analysis
-        raise AttributeError(name)
-
-
-def _test_client() -> tuple[TestClient, FakeAnalysisService]:
-    service = FakeAnalysisService()
     test_app = FastAPI()
     test_app.include_router(analysis_router)
-    test_app.dependency_overrides[get_analysis_service] = lambda: service
-    return TestClient(test_app), service
+    test_app.dependency_overrides[get_db_session] = override_get_db_session
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as async_client:
+        yield async_client
+
+    await engine.dispose()
 
 
-def _assert_complete_record(data: dict[str, Any], expected_id: UUID) -> None:
-    assert data["id"] == str(expected_id)
-    assert data["task"] == "code_analysis"
-    assert data["project_name"] in {"new-project", "old-project"}
-    assert data["source_code"] in {
-        "def newest():\n    return True\n",
-        "def older():\n    return False\n",
-    }
-    assert data["created_at"] in {
-        CREATED_AT.isoformat().replace("+00:00", "Z"),
-        SECOND_CREATED_AT.isoformat().replace("+00:00", "Z"),
-    }
-    result_key = "analysis_result" if "analysis_result" in data else "result"
-    assert data[result_key] == {
-        "score": 100,
-        "issues": [],
-        "summary": "No issues found.",
-    }
-
-
-def test_create_analysis_serializes_complete_record() -> None:
-    test_client, _ = _test_client()
-
-    response = test_client.post(
-        "/analyses",
-        json={
-            "task": "code_analysis",
-            "project_name": "new-project",
-            "source_code": "def newest():\n    return True\n",
-        },
-    )
-
-    assert response.status_code == 201
-    data = response.json()
-    _assert_complete_record(data, CREATED_ID)
-
-
-def test_create_analysis_passes_dashboard_payload_to_service() -> None:
-    test_client, service = _test_client()
+async def _create(client: AsyncClient, **overrides):
     payload = {
-        "task": "code_analysis",
-        "project_name": "new-project",
-        "source_code": "def newest():\n    return True\n",
+        "task": "code",
+        "project_name": "devpilot-ai",
+        "source_code": "def hello():\n    return 'hello'\n",
     }
+    payload.update(overrides)
+    return await client.post("/analyses", json=payload)
 
-    response = test_client.post("/analyses", json=payload)
+
+@pytest.mark.asyncio
+async def test_create_analysis_runs_and_persists(client: AsyncClient) -> None:
+    response = await _create(client)
 
     assert response.status_code == 201
-    assert service.created_requests == [payload]
-
-
-def test_list_analyses_uses_default_limit_and_newest_first() -> None:
-    test_client, service = _test_client()
-
-    response = test_client.get("/analyses")
-
-    assert response.status_code == 200
-    assert service.requested_limits == [20]
     data = response.json()
-    assert [item["id"] for item in data] == [str(CREATED_ID), str(SECOND_ID)]
-    _assert_complete_record(data[0], CREATED_ID)
-    _assert_complete_record(data[1], SECOND_ID)
+
+    UUID(data["id"])
+    assert data["task"] == "code"
+    assert data["project_name"] == "devpilot-ai"
+    assert data["source_code"] == "def hello():\n    return 'hello'\n"
+    assert data["status"] == "completed"
+    assert data["result"]["agent"] == "code_agent"
+    assert data["result"]["score"] == 100
 
 
-def test_list_analyses_accepts_valid_limit() -> None:
-    test_client, service = _test_client()
+@pytest.mark.asyncio
+async def test_list_analyses_returns_persisted_records_newest_first(client: AsyncClient) -> None:
+    first = (await _create(client, project_name="first")).json()
+    second = (await _create(client, project_name="second")).json()
 
-    response = test_client.get("/analyses?limit=1")
+    response = await client.get("/analyses")
 
     assert response.status_code == 200
-    assert service.requested_limits == [1]
+    data = response.json()
+    assert [item["id"] for item in data] == [second["id"], first["id"]]
+
+
+@pytest.mark.asyncio
+async def test_list_analyses_respects_limit(client: AsyncClient) -> None:
+    await _create(client, project_name="first")
+    await _create(client, project_name="second")
+
+    response = await client.get("/analyses?limit=1")
+
+    assert response.status_code == 200
     assert len(response.json()) == 1
-    assert response.json()[0]["id"] == str(CREATED_ID)
 
 
-def test_list_analyses_accepts_maximum_limit() -> None:
-    test_client, service = _test_client()
-
-    response = test_client.get("/analyses?limit=100")
-
-    assert response.status_code == 200
-    assert service.requested_limits == [100]
-    assert [item["id"] for item in response.json()] == [
-        str(CREATED_ID),
-        str(SECOND_ID),
-    ]
-
-
-def test_list_analyses_rejects_invalid_limits() -> None:
-    test_client, _ = _test_client()
-
+@pytest.mark.asyncio
+async def test_list_analyses_rejects_invalid_limits(client: AsyncClient) -> None:
     for limit in (0, -1, 101):
-        response = test_client.get(f"/analyses?limit={limit}")
-        assert response.status_code == 422
+        assert (await client.get(f"/analyses?limit={limit}")).status_code == 422
 
 
-def test_get_analysis_by_uuid() -> None:
-    test_client, _ = _test_client()
+@pytest.mark.asyncio
+async def test_get_analysis_by_uuid(client: AsyncClient) -> None:
+    created = (await _create(client)).json()
 
-    response = test_client.get(f"/analyses/{CREATED_ID}")
+    response = await client.get(f"/analyses/{created['id']}")
 
     assert response.status_code == 200
-    _assert_complete_record(response.json(), CREATED_ID)
+    assert response.json()["id"] == created["id"]
 
 
-def test_get_unknown_valid_uuid_returns_not_found() -> None:
-    test_client, _ = _test_client()
-
-    response = test_client.get("/analyses/33333333-3333-4333-8333-333333333333")
+@pytest.mark.asyncio
+async def test_get_unknown_uuid_returns_not_found(client: AsyncClient) -> None:
+    response = await client.get(f"/analyses/{uuid4()}")
 
     assert response.status_code == 404
 
 
-def test_get_analysis_rejects_malformed_uuid() -> None:
-    test_client, _ = _test_client()
-
-    response = test_client.get("/analyses/not-a-uuid")
-
-    assert response.status_code == 422
+@pytest.mark.asyncio
+async def test_get_analysis_rejects_malformed_uuid(client: AsyncClient) -> None:
+    assert (await client.get("/analyses/not-a-uuid")).status_code == 422
 
 
-def test_create_analysis_rejects_missing_required_fields() -> None:
-    test_client, _ = _test_client()
+@pytest.mark.asyncio
+async def test_unknown_task_returns_bad_request(client: AsyncClient) -> None:
+    response = await _create(client, task="security")
 
+    assert response.status_code == 400
+    assert response.json() == {"detail": "No agent available for task: security"}
+
+
+@pytest.mark.asyncio
+async def test_create_analysis_rejects_missing_required_fields(client: AsyncClient) -> None:
     for payload in (
         {"project_name": "demo", "source_code": "print('hello')"},
-        {"task": "code_analysis", "source_code": "print('hello')"},
-        {"task": "code_analysis", "project_name": "demo"},
+        {"task": "code", "source_code": "print('hello')"},
+        {"task": "code", "project_name": "demo"},
         {},
     ):
-        response = test_client.post("/analyses", json=payload)
-        assert response.status_code == 422
+        assert (await client.post("/analyses", json=payload)).status_code == 422
 
 
-def test_create_analysis_rejects_wrong_field_types() -> None:
-    test_client, _ = _test_client()
-
+@pytest.mark.asyncio
+async def test_create_analysis_rejects_empty_required_strings(client: AsyncClient) -> None:
     for payload in (
-        {
-            "task": "code_analysis",
-            "project_name": 123,
-            "source_code": "print('hello')",
-        },
-        {
-            "task": "code_analysis",
-            "project_name": "demo",
-            "source_code": 123,
-        },
-        {
-            "task": 123,
-            "project_name": "demo",
-            "source_code": "print('hello')",
-        },
+        {"task": "code", "project_name": "", "source_code": "print('hello')"},
+        {"task": "code", "project_name": "demo", "source_code": ""},
+        {"task": "", "project_name": "demo", "source_code": "print('hello')"},
     ):
-        response = test_client.post("/analyses", json=payload)
-        assert response.status_code == 422
+        assert (await client.post("/analyses", json=payload)).status_code == 422
 
 
-def test_create_analysis_rejects_empty_required_strings() -> None:
-    test_client, _ = _test_client()
-
+@pytest.mark.asyncio
+async def test_create_analysis_rejects_wrong_field_types(client: AsyncClient) -> None:
     for payload in (
-        {
-            "task": "code_analysis",
-            "project_name": "",
-            "source_code": "print('hello')",
-        },
-        {
-            "task": "code_analysis",
-            "project_name": "demo",
-            "source_code": "",
-        },
-        {
-            "task": "",
-            "project_name": "demo",
-            "source_code": "print('hello')",
-        },
+        {"task": "code", "project_name": 123, "source_code": "print('hello')"},
+        {"task": "code", "project_name": "demo", "source_code": 123},
+        {"task": 123, "project_name": "demo", "source_code": "print('hello')"},
     ):
-        response = test_client.post("/analyses", json=payload)
-        assert response.status_code == 422
+        assert (await client.post("/analyses", json=payload)).status_code == 422
