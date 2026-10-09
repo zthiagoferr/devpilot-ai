@@ -3,6 +3,7 @@ name: Deploy DevPilot AI frontend to GitHub Pages
 on:
   push:
     branches:
+      - main
       - preview-pages
   workflow_dispatch:
 
