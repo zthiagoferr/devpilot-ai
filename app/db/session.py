@@ -7,6 +7,7 @@ from the single application configuration object (:class:`app.core.config.Settin
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Final
@@ -23,6 +24,11 @@ from app.core.config import get_settings
 
 
 DEFAULT_DEVELOPMENT_DATABASE_URL: Final[str] = "sqlite+aiosqlite:///./dev.db"
+
+# Kept as a public setting for applications and tests that configure the module
+# directly.  The environment is checked again when the engine is first used so
+# late environment configuration still works.
+DATABASE_URL: str | None = os.getenv("DATABASE_URL")
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -42,9 +48,12 @@ def _is_production() -> bool:
 def _configured_database_url() -> str:
     """Return the configured database URL, or the development default.
 
-    Production requires an explicit PostgreSQL URL.
+    Resolution order: the ``DATABASE_URL`` environment variable, then the
+    module-level :data:`DATABASE_URL` (kept for compatibility with existing
+    wiring and tests), then application settings.  Production requires an
+    explicit PostgreSQL URL.
     """
-    value = get_settings().get_database_url()
+    value = os.getenv("DATABASE_URL") or DATABASE_URL or get_settings().get_database_url()
 
     if not value:
         if _is_production():

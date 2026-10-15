@@ -1,41 +1,115 @@
 """Alembic environment configuration.
 
-The persistence metadata is imported directly from the application models, and
-the database URL comes from the same configuration object the application uses
-(:mod:`app.core.config` / :mod:`app.db.session`).  Engines are created only when
-online migrations run.
+The persistence metadata is imported without importing the application entrypoint
+or creating a database engine. Engines are created only when online migrations
+run.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
+import os
+from typing import Any
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.db.models import Base
-from app.db.session import _configured_database_url, _normalise_and_validate_url
-
 
 config = context.config
 
-target_metadata = Base.metadata
+# Modules that may expose the declarative metadata, newest layout first.  The
+# application keeps its ORM models in ``app.db.models``; the ``app.persistence.*``
+# names are retained as a fallback for older layouts.
+_METADATA_MODULES = (
+    "app.db.models",
+    "app.persistence.database",
+    "app.persistence.base",
+    "app.persistence.models",
+)
+
+# Safe development default, kept in sync with app.db.session.
+_DEFAULT_DEVELOPMENT_DATABASE_URL = "sqlite+aiosqlite:///./dev.db"
+
+
+def _load_metadata() -> Any:
+    """Load the ORM metadata without initializing a database connection."""
+    for module_name in _METADATA_MODULES:
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if exc.name != module_name:
+                raise
+            continue
+
+        base = getattr(module, "Base", None)
+        if base is not None and hasattr(base, "metadata"):
+            return base.metadata
+
+        metadata = getattr(module, "metadata", None)
+        if metadata is None:
+            metadata = getattr(module, "target_metadata", None)
+        if metadata is not None:
+            return metadata
+
+    raise ImportError(
+        "Could not locate ORM metadata. Expected a Base.metadata attribute in "
+        "app.db.models."
+    )
+
+
+def _settings_database_url() -> str | None:
+    """Return the database URL from application settings, if configured."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    accessor = getattr(settings, "get_database_url", None)
+    if accessor is None:
+        return None
+
+    value = accessor()
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
 
 
 def _get_database_url() -> str:
-    """Return the async database URL used by the application."""
-    configured = _configured_database_url()
-    url, _ = _normalise_and_validate_url(configured)
-    return url
+    """Return the unredacted database URL used by Alembic.
+
+    Resolution order matches the application: explicit settings first, then the
+    ``DATABASE_URL`` environment variable, then the safe development default
+    used by :mod:`app.db.session`.
+    """
+    try:
+        value = _settings_database_url()
+    except ImportError:
+        value = None
+    if value:
+        return value
+
+    value = os.getenv("DATABASE_URL")
+    if value and value.strip():
+        return value.strip()
+
+    try:
+        from app.db.session import DEFAULT_DEVELOPMENT_DATABASE_URL
+
+        return DEFAULT_DEVELOPMENT_DATABASE_URL
+    except ImportError:
+        return _DEFAULT_DEVELOPMENT_DATABASE_URL
 
 
 def _configure_database_url() -> None:
-    """Put the application database URL into Alembic's configuration."""
+    """Put the settings URL into Alembic's configuration."""
     url = _get_database_url()
     # ConfigParser interpolation treats percent signs specially.
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+
+
+target_metadata = _load_metadata()
 
 
 def run_migrations_offline() -> None:
