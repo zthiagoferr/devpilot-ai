@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, urlparse
@@ -37,6 +39,16 @@ class GitHubResponseError(GitHubProviderError):
 
 class GitHubTreeTruncatedError(GitHubProviderError):
     """Raised when GitHub cannot return the complete repository tree."""
+
+
+class GitHubContentUnavailableError(GitHubProviderError):
+    """Raised when a file's content cannot be retrieved or decoded.
+
+    GitHub reports ``encoding: "none"`` and an empty ``content`` field for
+    blobs it refuses to inline (for example files larger than one megabyte).
+    Binary or non-UTF-8 payloads are also unusable by the analyzer and are
+    surfaced through this error so callers can skip them safely.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +271,66 @@ class GitHubHTTPXProvider(GitHubProvider):
                 )
             )
         return files
+
+    async def get_file_content(
+        self,
+        repository: str,
+        path: str,
+        branch: str | None = None,
+    ) -> str:
+        """Return the decoded UTF-8 text of ``path`` via the Contents API.
+
+        GitHub's ``GET /repos/{owner}/{repo}/contents/{path}`` endpoint returns
+        the file body as base64. The Authorization header (when a token is
+        configured) is attached by :meth:`_headers`; the token value is never
+        logged, returned, or embedded in the raised errors.
+        """
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("path must be a non-empty repository-relative path.")
+
+        reference = self._reference(repository)
+        selected_branch = (
+            branch
+            if branch
+            else await self.get_default_branch(repository)
+        )
+        if not isinstance(selected_branch, str) or not selected_branch:
+            raise GitHubResponseError("A valid branch was not provided.")
+
+        encoded_path = quote(path.strip().lstrip("/"), safe="/")
+        url = (
+            f"{self._api_base_url}/repos/{quote(reference.owner, safe='')}"
+            f"/{quote(reference.name, safe='')}/contents/{encoded_path}"
+        )
+        payload = await self._get_json(url, params={"ref": selected_branch})
+        if not isinstance(payload, dict):
+            raise GitHubResponseError("GitHub content response must be an object.")
+
+        if payload.get("type") not in (None, "file"):
+            raise GitHubContentUnavailableError(
+                "GitHub returned a non-file content entry."
+            )
+
+        encoding = payload.get("encoding")
+        content = payload.get("content")
+        if encoding != "base64" or not isinstance(content, str) or not content:
+            raise GitHubContentUnavailableError(
+                "GitHub did not return base64 content for this file."
+            )
+
+        try:
+            decoded = base64.b64decode(content, validate=False)
+        except (binascii.Error, ValueError):
+            raise GitHubContentUnavailableError(
+                "GitHub returned malformed base64 content."
+            ) from None
+
+        try:
+            return decoded.decode("utf-8")
+        except UnicodeDecodeError:
+            raise GitHubContentUnavailableError(
+                "GitHub content is not valid UTF-8 text."
+            ) from None
 
 
 GitHubHttpxProvider = GitHubHTTPXProvider

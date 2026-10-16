@@ -368,6 +368,12 @@
         state.repositoryFiles.forEach(function (file) { var path = typeof file === "string" ? file : file.path || file.name || ""; if (path) { var option = document.createElement("option"); option.value = path; option.textContent = path; select.appendChild(option); } });
         select.disabled = false;
       }
+      var submit = one(["[data-submit-github]"], form);
+      if (submit) submit.disabled = true;
+      if (!state.repositoryFiles.length) {
+        announce("Nenhum arquivo Python elegível foi encontrado neste repositório.", true);
+        return payload;
+      }
       announce("Arquivos do repositório carregados."); return payload;
     }).catch(function (error) { announce(error.message, true); throw error; }).finally(function () { if (id === sequence.repository) setBusy(button, false); });
   }
@@ -400,7 +406,7 @@
     if (github) {
       github.addEventListener("submit", function (event) { event.preventDefault(); if (validate(github, true)) { var values = formValues(github), selected = repositorySelection(github); values.file_path = selected.path; values.source_code = selected.source; submitForm(github, values); } });
       var loader = one(["[data-load-repository]", "[data-action='load-repository']"], github); if (loader) loader.addEventListener("click", function (event) { event.preventDefault(); loadRepository(github).catch(function () {}); });
-      var fileSelect = one(["#repository-file", "[data-repository-file]"], github); if (fileSelect) fileSelect.addEventListener("change", function () { var selected = repositorySelection(github), sourceField = one(["textarea[name='source_code']", "[data-source-code]"], github); if (sourceField && selected.source) sourceField.value = selected.source; });
+      var fileSelect = one(["#repository-file", "[data-repository-file]"], github); if (fileSelect) fileSelect.addEventListener("change", function () { var selected = repositorySelection(github), sourceField = one(["textarea[name='source_code']", "[data-source-code]"], github), submit = one(["[data-submit-github]"], github); if (sourceField && selected.source) sourceField.value = selected.source; if (submit) submit.disabled = !selected.path; });
     }
     document.addEventListener("click", function (event) {
       var target = event.target.closest ? event.target.closest("[data-analysis-id], [data-view], [data-nav], [data-view-target], [data-tab], [data-tab-target], [data-action]") : null; if (!target) return;

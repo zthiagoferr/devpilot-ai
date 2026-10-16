@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     github_max_files: int = 1_000
     github_max_file_bytes: int = 1_000_000
     github_max_total_bytes: int = 5_000_000
+    # Global time budget for a single ``POST /repositories/load`` call. It is
+    # shared by every download of that call and is enforced on top of the
+    # per-request HTTP timeout.
+    github_load_total_seconds: float = 60.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

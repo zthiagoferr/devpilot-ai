@@ -1,9 +1,12 @@
 from typing import Any
 
+import base64
+
 import httpx
 import pytest
 
 from app.integrations.github_httpx import (
+    GitHubContentUnavailableError,
     GitHubHTTPError,
     GitHubHTTPXProvider,
     GitHubResponseError,
@@ -275,5 +278,168 @@ async def test_truncated_tree_is_rejected() -> None:
     try:
         with pytest.raises(GitHubTreeTruncatedError):
             await provider.list_repository_files(REPOSITORY, branch="main")
+    finally:
+        await client.aclose()
+
+
+def _contents_payload(path: str, source: str, *, encoding: str = "base64") -> dict[str, Any]:
+    body = base64.b64encode(source.encode("utf-8")).decode("ascii") + "\n"
+    return {
+        "type": "file",
+        "encoding": encoding,
+        "size": len(source.encode("utf-8")),
+        "path": path,
+        "content": body if encoding == "base64" else "",
+    }
+
+
+@pytest.mark.asyncio
+async def test_file_content_is_base64_decoded() -> None:
+    source = "def add(a, b):\n    return a + b\n"
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json=_contents_payload("src/main.py", source),
+            request=request,
+        )
+
+    provider, client = make_provider(handler)
+    try:
+        content = await provider.get_file_content(
+            REPOSITORY,
+            "src/main.py",
+            branch="main",
+        )
+    finally:
+        await client.aclose()
+
+    assert content == source
+    assert requests[0].url.path == "/repos/octocat/hello-world/contents/src/main.py"
+    assert requests[0].url.params["ref"] == "main"
+
+
+@pytest.mark.asyncio
+async def test_file_content_uses_default_branch_when_omitted() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/repos/octocat/hello-world":
+            return httpx.Response(
+                200,
+                json={
+                    "name": "hello-world",
+                    "full_name": REPOSITORY,
+                    "default_branch": "trunk",
+                },
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json=_contents_payload("pkg/mod.py", "x = 1\n"),
+            request=request,
+        )
+
+    provider, client = make_provider(handler)
+    try:
+        content = await provider.get_file_content(REPOSITORY, "pkg/mod.py")
+    finally:
+        await client.aclose()
+
+    assert content == "x = 1\n"
+    assert requests[-1].url.params["ref"] == "trunk"
+    assert requests[-1].url.path == "/repos/octocat/hello-world/contents/pkg/mod.py"
+
+
+@pytest.mark.asyncio
+async def test_file_content_sends_token_without_leaking_it() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json=_contents_payload("main.py", "print('hi')\n"),
+            request=request,
+        )
+
+    provider, client = make_provider(handler, token=TOKEN)
+    try:
+        content = await provider.get_file_content(REPOSITORY, "main.py", branch="main")
+    finally:
+        await client.aclose()
+
+    assert content == "print('hi')\n"
+    assert requests[0].headers["authorization"] == f"Bearer {TOKEN}"
+    assert TOKEN not in repr(provider)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"type": "file", "encoding": "none", "content": ""},
+        {"type": "file", "encoding": "base64", "content": ""},
+        {"type": "file", "content": "not-declared"},
+        {"type": "file", "encoding": "base64", "content": "!!!not-base64!!!"},
+    ],
+)
+async def test_file_content_rejects_unusable_payloads(payload: dict[str, Any]) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload, request=request)
+
+    provider, client = make_provider(handler)
+    try:
+        with pytest.raises(GitHubContentUnavailableError):
+            await provider.get_file_content(REPOSITORY, "main.py", branch="main")
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_file_content_rejects_binary_payload() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "type": "file",
+                "encoding": "base64",
+                "content": base64.b64encode(b"\xff\xfe\x00\x01").decode("ascii"),
+            },
+            request=request,
+        )
+
+    provider, client = make_provider(handler)
+    try:
+        with pytest.raises(GitHubContentUnavailableError):
+            await provider.get_file_content(REPOSITORY, "main.py", branch="main")
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_file_content_propagates_http_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, request=request)
+
+    provider, client = make_provider(handler)
+    try:
+        with pytest.raises(GitHubHTTPError) as caught:
+            await provider.get_file_content(REPOSITORY, "main.py", branch="main")
+    finally:
+        await client.aclose()
+
+    assert caught.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_file_content_rejects_empty_path() -> None:
+    provider, client = make_provider(lambda request: httpx.Response(200))
+    try:
+        with pytest.raises(ValueError):
+            await provider.get_file_content(REPOSITORY, "  ", branch="main")
     finally:
         await client.aclose()

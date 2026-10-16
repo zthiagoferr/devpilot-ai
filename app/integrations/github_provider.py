@@ -77,3 +77,18 @@ class GitHubProvider(Protocol):
     ) -> list[RepositoryFile]:
         """Recursively return repository files, optionally from ``branch``."""
         ...
+
+    async def get_file_content(
+        self,
+        repository: str,
+        path: str,
+        branch: str | None = None,
+    ) -> str:
+        """Return the decoded UTF-8 text of a repository file.
+
+        ``path`` is repository-relative. Implementations must read the file
+        through the GitHub Contents API (or an equivalent source), decode the
+        base64 payload, and raise a provider error when the content is binary,
+        missing, or otherwise unusable.
+        """
+        ...
