@@ -172,7 +172,9 @@ textarea { min-height: 190px; resize: vertical; font-family: var(--font-mono); f
 .field-error:empty, .form-error:empty { display: none; }
 .form-control[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--red); }
 .form-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 2px; }
-.inline-status { display: inline-flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: 12px; }
+.inline-status { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; color: var(--text-muted); font-size: 12px; }
+.inline-status[data-status="success"] { color: var(--mint); font-weight: 650; }
+.inline-status[data-status="error"] { color: var(--red); font-weight: 650; }
 
 .history-panel, .detail-panel { min-width: 0; overflow: hidden; }
 .table-wrap, [data-history-table-wrap] { width: 100%; overflow-x: auto; }

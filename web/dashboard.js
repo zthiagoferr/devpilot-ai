@@ -38,7 +38,13 @@
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
   }
 
-  function announce(message, error) {
+  // Every feedback message goes to the screen-reader live region *and* to the
+  // visible status line of the workflow panel. The visible mirror is essential:
+  // ``#announcements`` is ``visually-hidden``, so without it loading, success,
+  // HTTP-error, network-error and empty-repository messages were all announced
+  // to assistive technology while a sighted user saw nothing happen.
+  function announce(message, error, tone) {
+    var value = text(message);
     var node = one(["[data-announcement]", "#announcements", "#status-message"]);
     if (!node) {
       node = document.createElement("div");
@@ -46,9 +52,16 @@
       node.className = "visually-hidden";
       document.body.appendChild(node);
     }
-    node.textContent = text(message);
+    node.textContent = value;
     node.setAttribute("role", "status");
     node.setAttribute("aria-live", error ? "assertive" : "polite");
+    var status = tone || (error ? "error" : "info");
+    many("[data-analysis-status], [data-visible-status]").forEach(function (target) {
+      target.textContent = value;
+      target.hidden = value === "";
+      if (value === "") delete target.dataset.status;
+      else target.dataset.status = status;
+    });
   }
 
   function showState(name, visible, root) {
@@ -188,9 +201,12 @@
         }
         return body;
       });
-    }).catch(function (error) {
-      if (error && error.message) throw error;
-      throw new Error("Não foi possível acessar o DevPilot. Verifique sua conexão e tente novamente.");
+    }, function () {
+      // ``fetch`` rejects with a ``TypeError`` for network, DNS, CORS and
+      // browser-blocked requests. Those failures carry no user-facing message
+      // ("Failed to fetch"), so they are translated here. API errors are thrown
+      // by the fulfilled handler above and keep their own ``detail``.
+      throw new Error("Não foi possível acessar a API do DevPilot. Verifique sua conexão e tente novamente.");
     });
   }
 
@@ -425,36 +441,67 @@
       var item = normalize(payload); if (!item) throw new Error("A API não retornou uma análise válida.");
       renderRecord(item); state.selectedId = item.id || null;
       return loadHistory().catch(function () {}).then(function () { showState("success", true, panel); announce("Análise concluída com sucesso."); showView(item.id ? "detail" : "history"); });
-    }).catch(function (error) { showState("error", true, panel); announce(error.message, true); }).finally(function () { setBusy(button, false); showState("loading", false, panel); });
+    }).catch(function (error) {
+      // The visible error block has its own heading; without this the user only
+      // saw the generic "Verifique os dados informados" line because the reason
+      // was written to the screen-reader-only live region.
+      var detail = one(["[data-error-message]"], panel);
+      if (detail) detail.textContent = error.message;
+      showState("error", true, panel); announce(error.message, true);
+    }).finally(function () { setBusy(button, false); showState("loading", false, panel); });
+  }
+
+  // A loaded file list belongs to the reference currently typed in the form.
+  // Any failed load clears it so a file from a previous repository can never be
+  // submitted together with a different ``repository_url``.
+  function clearRepositoryFiles(form) {
+    state.repositoryFiles = [];
+    var select = one(["#repository-file", "[data-repository-file]", "[name='file_path']"], form);
+    if (select) {
+      select.textContent = "";
+      var placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Informe um repositório para carregar os arquivos";
+      placeholder.selected = true;
+      select.appendChild(placeholder);
+      select.disabled = true;
+    }
+    var submit = one(["[data-submit-github]"], form);
+    if (submit) submit.disabled = true;
   }
 
   function loadRepository(form) {
     if (STATIC) { announce(unavailable(), true); return Promise.reject(new Error(unavailable())); }
     var button = one(["[data-load-repository]", "[data-action='load-repository']"], form), values = formValues(form);
     var repository = text(values.repository_url || values.repository || values.url).trim();
-    if (!repository) { announce("Informe a URL do repositório GitHub.", true); return Promise.reject(new Error("URL do repositório ausente.")); }
+    if (!repository) { clearRepositoryFiles(form); announce("Informe a URL do repositório GitHub.", true); return Promise.reject(new Error("URL do repositório ausente.")); }
     var id = ++sequence.repository; setBusy(button, true); announce("Carregando arquivos do repositório.");
     return request(form.getAttribute("data-load-endpoint") || CONTRACT.repository.path, jsonOptions(CONTRACT.repository.method, { repository_url: repository, branch: text(values.branch) })).then(function (payload) {
       if (id !== sequence.repository) return payload;
       var files = payload && (payload.files || payload.repository_files || payload.items || payload.data) || [];
       state.repositoryFiles = Array.isArray(files) ? files : [];
+      var empty = state.repositoryFiles.length === 0;
       var select = one(["#repository-file", "[data-repository-file]", "[name='file_path']"], form);
       if (select) {
-        select.textContent = ""; var placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Selecione um arquivo"; placeholder.disabled = true; placeholder.selected = true; select.appendChild(placeholder);
+        select.textContent = ""; var placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = empty ? "Nenhum arquivo Python encontrado neste repositório" : "Selecione um arquivo"; placeholder.disabled = true; placeholder.selected = true; select.appendChild(placeholder);
         state.repositoryFiles.forEach(function (file) { var path = typeof file === "string" ? file : file.path || file.name || ""; if (path) { var option = document.createElement("option"); option.value = path; option.textContent = path; select.appendChild(option); } });
-        select.disabled = false;
+        select.disabled = empty;
       }
       var submit = one(["[data-submit-github]"], form);
       if (submit) submit.disabled = true;
-      if (!state.repositoryFiles.length) {
-        announce("Nenhum arquivo Python elegível foi encontrado neste repositório.", true);
+      if (empty) {
+        // The API answers ``200`` with ``files: []`` and a ``message`` when the
+        // repository is valid but exposes no analyzable Python file; the reason
+        // must reach the user instead of an empty dropdown.
+        announce(text(payload && payload.message, "Nenhum arquivo Python elegível foi encontrado neste repositório."), true);
         return payload;
       }
-      announce(payload && payload.truncated
-        ? "Arquivos do repositório carregados. Parte do repositório foi omitida pelos limites de tamanho ou quantidade."
-        : "Arquivos do repositório carregados.");
+      var loaded = state.repositoryFiles.length;
+      var message = "Arquivos do repositório carregados (" + loaded + (loaded === 1 ? " arquivo)." : " arquivos).");
+      if (payload && payload.truncated) message += " Parte do repositório foi omitida pelos limites de tamanho ou quantidade.";
+      announce(message, false, "success");
       return payload;
-    }).catch(function (error) { announce(error.message, true); throw error; }).finally(function () { if (id === sequence.repository) setBusy(button, false); });
+    }).catch(function (error) { if (id === sequence.repository) clearRepositoryFiles(form); announce(error.message, true); throw error; }).finally(function () { if (id === sequence.repository) setBusy(button, false); });
   }
 
   function showView(name, updateUrl) {
