@@ -128,6 +128,9 @@ class FirebaseTokenVerifier:
             )
             raise TokenVerificationError() from None
 
+        if not isinstance(decoded, dict):
+            return self._reject("the verified token is not a claims mapping.")
+
         uid = decoded.get("uid") or decoded.get("sub")
         if not uid:
             return self._reject("the verified token carries no subject.")
