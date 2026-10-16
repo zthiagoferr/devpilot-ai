@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import json
 import logging
 import threading
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
 
 from app.core.config import get_settings
 
@@ -141,7 +141,7 @@ class FirebaseTokenVerifier:
 
     # -- internals ----------------------------------------------------------
 
-    def _reject(self, reason: str) -> VerifiedUser:
+    def _reject(self, reason: str) -> NoReturn:
         logger.error("Rejecting the bearer token: %s", reason)
         raise TokenVerificationError()
 
