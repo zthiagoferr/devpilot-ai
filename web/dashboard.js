@@ -57,6 +57,8 @@
     "auth/too-many-requests": "Muitas tentativas. Aguarde alguns instantes e tente novamente.",
     "auth/network-request-failed": "Falha de rede. Verifique sua conexão e tente novamente.",
     "auth/operation-not-allowed": "Este método de acesso não está habilitado no projeto Firebase.",
+    "auth/invalid-api-key": "A chave pública do Firebase é inválida. Revise a configuração do projeto.",
+    "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "A chave pública do Firebase é inválida. Revise a configuração do projeto.",
     "auth/popup-closed-by-user": "A janela do GitHub foi fechada antes de concluir o acesso.",
     "auth/popup-blocked": "O navegador bloqueou a janela do GitHub.",
     "auth/cancelled-popup-request": "Já existe uma janela de acesso aberta.",
@@ -663,7 +665,7 @@
       // Graceful degradation: everything except the account area keeps working.
       renderAuthState();
       many("[data-auth-submit], [data-auth-action='github']").forEach(function (node) { node.disabled = true; });
-      authMessage("A autenticação não está configurada neste ambiente. Você pode analisar seu código sem entrar.", false);
+      authMessage("A autenticação não está configurada neste ambiente. Você pode analisar seu código sem entrar.", false, true);
       return Promise.resolve(null);
     }
     return loadFirebaseSdk().then(function (authSdk) {
@@ -723,7 +725,7 @@
     many("[data-auth-history-prompt]").forEach(function (node) { node.hidden = !visible; });
   }
 
-  function authMessage(message, error) {
+  function authMessage(message, error, silent) {
     var value = text(message);
     many("[data-auth-message]").forEach(function (node) {
       node.textContent = value;
@@ -732,7 +734,9 @@
       else node.dataset.status = error ? "error" : "info";
     });
     // The shared live region keeps assistive technology in sync with the modal.
-    if (value) announce(value, !!error);
+    // ``silent`` is used by the startup notice, which is already visible in the
+    // account card and must not leak into the analysis status line.
+    if (value && !silent) announce(value, !!error);
   }
 
   function authErrorMessage(error) {
