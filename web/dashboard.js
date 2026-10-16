@@ -15,6 +15,61 @@
     status: { method: "GET", path: "/agents/orchestrator" }
   };
 
+  // Firebase configuration. These values are *public by nature*: they identify
+  // the project in the browser and are not secrets (the service account used by
+  // the backend is a secret and never lives here). Fill them from the Firebase
+  // console to enable sign-in. While they are empty the dashboard degrades
+  // gracefully: the visitor flows (manual analysis and repository load) keep
+  // working and the account area explains that sign-in is unavailable.
+  var FIREBASE_CONFIG = {
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    appId: ""
+  };
+  // The SDK is imported lazily from the official CDN (pinned version) and only
+  // when the configuration above is present. No <script src> is added to the
+  // HTML, so the static bundle keeps working with no Firebase project.
+  var FIREBASE_SDK_VERSION = "10.14.1";
+  var FIREBASE_SDK_BASE = "https://www.gstatic.com/firebasejs/" + FIREBASE_SDK_VERSION + "/";
+  var AUTH_TITLES = {
+    login: "Entrar no DevPilot AI",
+    register: "Criar sua conta",
+    reset: "Recuperar senha"
+  };
+  var AUTH_LEADS = {
+    login: "Use seu e-mail e senha ou continue com o GitHub.",
+    register: "Crie uma conta para guardar o histórico das suas análises.",
+    reset: "Informe o e-mail da conta e enviaremos um link para redefinir a senha."
+  };
+  // Firebase error code -> pt-BR message. Unknown codes fall back to a generic
+  // message, so no raw SDK text ever reaches the user.
+  var AUTH_ERRORS = {
+    "auth/invalid-credential": "E-mail ou senha inválidos.",
+    "auth/invalid-email": "Informe um e-mail válido.",
+    "auth/missing-password": "Informe sua senha.",
+    "auth/missing-email": "Informe o e-mail da conta.",
+    "auth/weak-password": "A senha é muito fraca. Use ao menos 6 caracteres.",
+    "auth/email-already-in-use": "Este e-mail já está cadastrado. Tente entrar.",
+    "auth/user-not-found": "Não encontramos uma conta com este e-mail.",
+    "auth/wrong-password": "Senha incorreta.",
+    "auth/user-disabled": "Esta conta está desativada.",
+    "auth/too-many-requests": "Muitas tentativas. Aguarde alguns instantes e tente novamente.",
+    "auth/network-request-failed": "Falha de rede. Verifique sua conexão e tente novamente.",
+    "auth/operation-not-allowed": "Este método de acesso não está habilitado no projeto Firebase.",
+    "auth/popup-closed-by-user": "A janela do GitHub foi fechada antes de concluir o acesso.",
+    "auth/popup-blocked": "O navegador bloqueou a janela do GitHub.",
+    "auth/cancelled-popup-request": "Já existe uma janela de acesso aberta.",
+    "auth/account-exists-with-different-credential": "Este e-mail já usa outro método de acesso.",
+    "auth/requires-recent-login": "Entre novamente para concluir esta ação.",
+    "auth/unauthorized-domain": "Este domínio não está autorizado no Firebase Authentication."
+  };
+  var firebaseApp = null;
+  var auth = null;
+  var authApi = null;
+  var authUser = null;
+  var sdkPromise = null;
+
   function one(selectors, root) {
     var scope = root || document;
     for (var i = 0; i < selectors.length; i += 1) {
@@ -191,22 +246,34 @@
     if (STATIC) return Promise.reject(new Error(unavailable()));
     var config = Object.assign({}, options || {});
     config.headers = Object.assign({ Accept: "application/json" }, config.headers || {});
-    return fetch(endpoint(path), config).then(function (response) {
-      return response.text().then(function (raw) {
-        var body = null;
-        try { body = raw ? JSON.parse(raw) : null; } catch (_) { body = raw; }
-        if (!response.ok) {
-          var message = body && body.detail ? body.detail : body && body.message ? body.message : "Não foi possível concluir a solicitação (" + response.status + ").";
-          throw new Error(String(message));
-        }
-        return body;
+    // An authenticated session attaches its ID token so the backend can scope
+    // history/detail to the verified owner. A visitor sends no header at all,
+    // which keeps the public endpoints (analysis, repository load) working.
+    return authToken().then(function (token) {
+      if (token) config.headers.Authorization = "Bearer " + token;
+      return fetch(endpoint(path), config).then(function (response) {
+        return response.text().then(function (raw) {
+          var body = null;
+          try { body = raw ? JSON.parse(raw) : null; } catch (_) { body = raw; }
+          if (!response.ok) {
+            if (response.status === 401) {
+              // The session expired (or was never established): ask for a login
+              // instead of showing the raw API text.
+              openAuthDialog("login");
+              throw new Error("Sua sessão expirou. Entre novamente para continuar.");
+            }
+            var message = body && body.detail ? body.detail : body && body.message ? body.message : "Não foi possível concluir a solicitação (" + response.status + ").";
+            throw new Error(String(message));
+          }
+          return body;
+        });
+      }, function () {
+        // ``fetch`` rejects with a ``TypeError`` for network, DNS, CORS and
+        // browser-blocked requests. Those failures carry no user-facing message
+        // ("Failed to fetch"), so they are translated here. API errors are thrown
+        // by the fulfilled handler above and keep their own ``detail``.
+        throw new Error("Não foi possível acessar a API do DevPilot. Verifique sua conexão e tente novamente.");
       });
-    }, function () {
-      // ``fetch`` rejects with a ``TypeError`` for network, DNS, CORS and
-      // browser-blocked requests. Those failures carry no user-facing message
-      // ("Failed to fetch"), so they are translated here. API errors are thrown
-      // by the fulfilled handler above and keep their own ``detail``.
-      throw new Error("Não foi possível acessar a API do DevPilot. Verifique sua conexão e tente novamente.");
     });
   }
 
@@ -370,6 +437,19 @@
   }
 
   function loadHistory() {
+    // History is owner-scoped, so a visitor is asked to sign in instead of
+    // being shown an empty list (or, worse, someone else's records).
+    if (!isAuthenticated()) {
+      state.history = [];
+      historyState("loading", false); historyState("empty", false); historyState("error", false);
+      showHistoryPrompt(true);
+      renderHistory([]); renderRecent([]); renderMetrics([]);
+      announce(authConfigured()
+        ? "Entre na sua conta para ver o histórico das suas análises."
+        : "Entre na sua conta para ver seu histórico. A autenticação não está configurada neste ambiente.");
+      return Promise.resolve([]);
+    }
+    showHistoryPrompt(false);
     var id = ++sequence.history; historyState("loading", true); historyState("empty", false); historyState("error", false);
     setRefreshBusy(true);
     return request(CONTRACT.history.path).then(function (payload) {
@@ -381,7 +461,7 @@
   }
 
   function synchronizeStatuses() {
-    if (STATIC) return;
+    if (STATIC || !isAuthenticated()) return;
     request(CONTRACT.history.path).then(function (payload) {
       sorted(payload).forEach(function (item) { updateAnalysisStatus(item.id, item.status || resultOf(item).status); });
       state.history = sorted(payload);
@@ -530,6 +610,273 @@
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Authentication
+  //
+  // The Firebase SDK is imported lazily, only when FIREBASE_CONFIG is filled
+  // in, so the static dashboard keeps working with no project configured. The
+  // visitor flows never depend on it: an anonymous analysis and a repository
+  // load are public, while history/detail are scoped to the verified owner.
+  // -------------------------------------------------------------------------
+
+  function authConfigured() {
+    return !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
+  }
+
+  function authAvailable() {
+    return !!(auth && authApi);
+  }
+
+  function isAuthenticated() {
+    return !!(auth && authUser);
+  }
+
+  function loadFirebaseSdk() {
+    if (sdkPromise) return sdkPromise;
+    sdkPromise = Promise.all([
+      import(FIREBASE_SDK_BASE + "firebase-app.js"),
+      import(FIREBASE_SDK_BASE + "firebase-auth.js")
+    ]).then(function (modules) {
+      var appSdk = modules[0], authSdk = modules[1];
+      firebaseApp = appSdk.getApps().length ? appSdk.getApp() : appSdk.initializeApp(FIREBASE_CONFIG);
+      authApi = authSdk;
+      auth = authSdk.getAuth(firebaseApp);
+      return auth;
+    });
+    return sdkPromise;
+  }
+
+  function authToken() {
+    if (!isAuthenticated() || typeof authUser.getIdToken !== "function") return Promise.resolve(null);
+    return authUser.getIdToken().then(function (token) {
+      return text(token) || null;
+    }).catch(function () {
+      // A token that cannot be refreshed is treated as "no session"; the
+      // request then reaches the API anonymously and the 401 handler asks for
+      // a new login.
+      return null;
+    });
+  }
+
+  function startAuth() {
+    if (!authConfigured()) {
+      // Graceful degradation: everything except the account area keeps working.
+      renderAuthState();
+      many("[data-auth-submit], [data-auth-action='github']").forEach(function (node) { node.disabled = true; });
+      authMessage("A autenticação não está configurada neste ambiente. Você pode analisar seu código sem entrar.", false);
+      return Promise.resolve(null);
+    }
+    return loadFirebaseSdk().then(function (authSdk) {
+      authSdk.onAuthStateChanged(auth, handleAuthState);
+      return auth;
+    }).catch(function () {
+      authMessage("Não foi possível carregar o serviço de autenticação. Verifique sua conexão e tente novamente.", true);
+      return null;
+    });
+  }
+
+  function handleAuthState(user) {
+    authUser = user || null;
+    renderAuthState();
+    if (authUser) {
+      loadHistory().catch(function () {});
+      return;
+    }
+    state.history = [];
+    renderHistory([]); renderRecent([]); renderMetrics([]);
+    historyState("empty", false);
+    showHistoryPrompt(true);
+  }
+
+  function renderAuthState() {
+    var signedIn = isAuthenticated();
+    many("[data-auth-when]").forEach(function (node) {
+      node.hidden = node.dataset.authWhen === "authenticated" ? !signedIn : signedIn;
+    });
+    many("[data-auth-user]").forEach(function (node) {
+      node.textContent = signedIn ? text(authUser.email || authUser.uid) : "";
+      node.hidden = !signedIn;
+    });
+    many("[data-auth-hint]").forEach(function (node) {
+      node.textContent = signedIn
+        ? "Suas análises ficam salvas no histórico da sua conta."
+        : authConfigured()
+          ? "Entre para salvar e revisar o histórico das suas análises."
+          : "Autenticação indisponível neste ambiente. A análise de código continua liberada.";
+    });
+    many("[data-auth-status]").forEach(function (node) {
+      node.textContent = signedIn ? "Conectado" : "Visitante";
+      node.dataset.status = signedIn ? "connected" : "anonymous";
+    });
+    many("[data-auth-account]").forEach(function (node) {
+      node.dataset.status = signedIn ? "connected" : "anonymous";
+    });
+    var verify = one(["[data-auth-verify]"]);
+    if (verify) {
+      var pending = signedIn && authUser.emailVerified === false;
+      verify.textContent = pending ? "Confirme seu e-mail para manter o acesso à sua conta." : "";
+      verify.hidden = !pending;
+    }
+  }
+
+  function showHistoryPrompt(visible) {
+    many("[data-auth-history-prompt]").forEach(function (node) { node.hidden = !visible; });
+  }
+
+  function authMessage(message, error) {
+    var value = text(message);
+    many("[data-auth-message]").forEach(function (node) {
+      node.textContent = value;
+      node.hidden = value === "";
+      if (value === "") delete node.dataset.status;
+      else node.dataset.status = error ? "error" : "info";
+    });
+    // The shared live region keeps assistive technology in sync with the modal.
+    if (value) announce(value, !!error);
+  }
+
+  function authErrorMessage(error) {
+    var code = error && error.code ? String(error.code) : "";
+    return AUTH_ERRORS[code] || "Não foi possível concluir a operação. Tente novamente.";
+  }
+
+  function setAuthBusy(busy) {
+    many("[data-auth-loading]").forEach(function (node) { node.hidden = !busy; });
+    many("[data-auth-submit]").forEach(function (node) {
+      node.disabled = !!busy;
+      node.setAttribute("aria-busy", busy ? "true" : "false");
+    });
+  }
+
+  function showAuthForm(mode) {
+    many("[data-auth-form]").forEach(function (form) {
+      var active = form.dataset.authForm === mode;
+      form.hidden = !active;
+      if (!active && typeof form.reset === "function") form.reset();
+    });
+    var key = AUTH_TITLES[mode] ? mode : "login";
+    setText(document, ["[data-auth-title]"], AUTH_TITLES[key], AUTH_TITLES.login);
+    setText(document, ["[data-auth-lead]"], AUTH_LEADS[key], AUTH_LEADS.login);
+  }
+
+  function openAuthDialog(mode) {
+    var dialog = one(["[data-auth-dialog]"]);
+    if (!dialog) return;
+    showAuthForm(mode || "login");
+    authMessage("", false);
+    if (dialog.showModal) { if (!dialog.open) dialog.showModal(); }
+    else dialog.setAttribute("open", "");
+    if (!authConfigured()) authMessage("A autenticação não está configurada neste ambiente. Você pode analisar seu código sem entrar.", false);
+    var form = one(["form[data-auth-form]:not([hidden])"]);
+    var email = one(["[data-auth-email]"], form);
+    var password = one(["[data-auth-password]"], form);
+    // With a remembered e-mail the password is the field to fill next.
+    var field = email && text(email.value) ? (password || email) : email;
+    if (field && typeof field.focus === "function") field.focus();
+  }
+
+  function closeAuthDialog() {
+    var dialog = one(["[data-auth-dialog]"]);
+    if (!dialog) return;
+    if (dialog.close && dialog.open) dialog.close();
+    else dialog.removeAttribute("open");
+  }
+
+  function runAuthAction(action) {
+    if (!authAvailable()) {
+      authMessage("A autenticação não está disponível neste ambiente.", true);
+      return Promise.resolve(null);
+    }
+    setAuthBusy(true);
+    authMessage("", false);
+    return Promise.resolve().then(action).catch(function (error) {
+      authMessage(authErrorMessage(error), true);
+      return null;
+    }).finally(function () { setAuthBusy(false); });
+  }
+
+  function signInWithEmail(values) {
+    return runAuthAction(function () {
+      return authApi.signInWithEmailAndPassword(auth, text(values.email).trim(), text(values.password)).then(function () {
+        closeAuthDialog();
+        authMessage("Sessão iniciada. Bem-vindo de volta!", false);
+        return loadHistory().catch(function () {});
+      });
+    });
+  }
+
+  function registerWithEmail(values) {
+    return runAuthAction(function () {
+      return authApi.createUserWithEmailAndPassword(auth, text(values.email).trim(), text(values.password)).then(function (credential) {
+        var user = credential && credential.user;
+        var verification = user && authApi.sendEmailVerification
+          ? authApi.sendEmailVerification(user)
+          : Promise.resolve();
+        return Promise.resolve(verification).then(function () {
+          authMessage("Conta criada. Enviamos um link de confirmação para " + text(values.email).trim() + ".", false);
+          return loadHistory().catch(function () {});
+        });
+      });
+    });
+  }
+
+  function sendPasswordReset(values) {
+    return runAuthAction(function () {
+      return authApi.sendPasswordResetEmail(auth, text(values.email).trim()).then(function () {
+        authMessage("Se existir uma conta com este e-mail, o link de redefinição chegará em instantes.", false);
+      });
+    });
+  }
+
+  function signInWithGithub() {
+    return runAuthAction(function () {
+      var provider = new authApi.GithubAuthProvider();
+      return authApi.signInWithPopup(auth, provider).then(function () {
+        closeAuthDialog();
+        return loadHistory().catch(function () {});
+      }).catch(function (error) {
+        var code = error && error.code ? String(error.code) : "";
+        if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+          // Some browsers/extensions block the popup: fall back to a redirect.
+          return authApi.signInWithRedirect(auth, provider);
+        }
+        throw error;
+      });
+    });
+  }
+
+  function signOutUser() {
+    return runAuthAction(function () {
+      return authApi.signOut(auth).then(function () {
+        closeAuthDialog();
+        authMessage("Você saiu da sua conta.", false);
+        showHistoryPrompt(true);
+      });
+    });
+  }
+
+  function resendVerificationEmail() {
+    return runAuthAction(function () {
+      if (!isAuthenticated()) {
+        authMessage("Entre na sua conta para confirmar o e-mail.", true);
+        return null;
+      }
+      return authApi.sendEmailVerification(authUser).then(function () {
+        authMessage("Enviamos um novo link de confirmação para " + text(authUser.email) + ".", false);
+      });
+    });
+  }
+
+  function handleAuthAction(action) {
+    if (action === "close") { closeAuthDialog(); return; }
+    if (action === "open-login") { openAuthDialog("login"); return; }
+    if (action === "open-register") { openAuthDialog("register"); return; }
+    if (action === "open-reset") { openAuthDialog("reset"); return; }
+    if (action === "logout") { signOutUser(); return; }
+    if (action === "github") { signInWithGithub(); return; }
+    if (action === "verify-email") { resendVerificationEmail(); }
+  }
+
   function init(options) {
     if (started) return; started = true; options = options || {};
     var html = document.documentElement, body = document.body, config = Object.assign({}, window.DEVPILOT_CONFIG || {}, window.DevPilotConfig || {});
@@ -562,6 +909,28 @@
       request(CONTRACT.status.path).then(function (value) { var status = value && (value.status || value.state || value.health); updateStatus(status || "connected", "Todos os sistemas operacionais"); }).catch(function () { updateStatus("unavailable", "Indisponível"); });
       statusTimer = window.setInterval(function () { synchronizeStatuses(); request(CONTRACT.status.path).then(function (value) { updateStatus(value && (value.status || value.state || value.health) || "connected"); }).catch(function () { updateStatus("unavailable", "Indisponível"); }); }, 15000);
     }
+    // Authentication wiring. Clicks are delegated through ``data-auth-action``
+    // so every control (sidebar, modal, history prompt) is covered, and the
+    // three forms share one submit path.
+    many("[data-auth-form]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var values = formValues(form), mode = form.dataset.authForm;
+        if (mode === "register") registerWithEmail(values);
+        else if (mode === "reset") sendPasswordReset(values);
+        else signInWithEmail(values);
+      });
+    });
+    document.addEventListener("click", function (event) {
+      var target = event.target.closest ? event.target.closest("[data-auth-action]") : null;
+      if (!target) return;
+      event.preventDefault();
+      handleAuthAction(target.dataset.authAction);
+    });
+    var authDialog = one(["[data-auth-dialog]"]);
+    if (authDialog && authDialog.addEventListener) authDialog.addEventListener("close", function () { authMessage("", false); });
+    renderAuthState();
+    startAuth().catch(function () {});
   }
 
   window.DevPilotDashboard = { init: init, api: { request: request, createAnalysis: createAnalysis, loadHistory: loadHistory, loadDetail: loadDetail, loadRepository: loadRepository }, renderHistory: renderHistory, renderRecentActivity: renderRecent, renderRecord: renderRecord, showView: showView, activateSourceTab: activateSourceTab };
