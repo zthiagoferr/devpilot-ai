@@ -668,8 +668,14 @@
       authMessage("A autenticação não está configurada neste ambiente. Você pode analisar seu código sem entrar.", false, true);
       return Promise.resolve(null);
     }
-    return loadFirebaseSdk().then(function (authSdk) {
-      authSdk.onAuthStateChanged(auth, handleAuthState);
+    return loadFirebaseSdk().then(function () {
+      // Register the observer through the modular API, like every other auth
+      // call below: ``onAuthStateChanged(auth, nextOrObserver, error?,
+      // completed?)``. The instance method instead takes the observer first
+      // (``auth.onAuthStateChanged(handleAuthState)``); passing the instance as
+      // the first argument made the SDK run ``auth.next.bind(auth)`` and throw
+      // synchronously, so the observer was never registered.
+      authApi.onAuthStateChanged(auth, handleAuthState);
       return auth;
     }).catch(function () {
       authMessage("Não foi possível carregar o serviço de autenticação. Verifique sua conexão e tente novamente.", true);

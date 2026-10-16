@@ -522,6 +522,25 @@ def test_dashboard_restores_the_session_and_wires_every_auth_flow() -> None:
         assert symbol in script, symbol
 
 
+def test_dashboard_registers_the_auth_state_observer_with_the_sdk_signature() -> None:
+    script = _compact(_javascript())
+
+    start = _function(script, "startAuth")
+    match = re.search(r"([\w$.]+)\.onAuthStateChanged\(([^)]*)\)", start)
+    assert match, "startAuth must register an auth state observer"
+
+    receiver, arguments = match.group(1), match.group(2).strip()
+    if receiver == "authApi":
+        # Modular form: the instance comes first, the observer second.
+        assert arguments == "auth, handleAuthState", arguments
+    else:
+        # Instance form: the observer is the only argument. Passing the auth
+        # instance as the first argument (``auth.onAuthStateChanged(auth,
+        # handleAuthState)``) makes the SDK run ``auth.next.bind(auth)`` and
+        # throw synchronously, so the observer is never registered.
+        assert arguments == "handleAuthState", arguments
+
+
 def test_dashboard_translates_firebase_errors_to_portuguese() -> None:
     script = _compact(_javascript())
 
