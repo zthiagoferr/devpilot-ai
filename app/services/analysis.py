@@ -66,8 +66,16 @@ class AnalysisService:
             orchestrator if orchestrator is not None else OrchestratorAgent()
         )
 
-    async def create_analysis(self, request: AnalysisCreate) -> Analysis:
-        """Run and persist one analysis request."""
+    async def create_analysis(
+        self,
+        request: AnalysisCreate,
+        user_id: str | None = None,
+    ) -> Analysis:
+        """Run and persist one analysis request.
+
+        ``user_id`` is the verified Firebase uid (or ``None`` for an anonymous
+        submission) and is decided by the API layer, never by the client body.
+        """
         task = str(request.task).strip()
         project_name = str(request.project_name).strip()
         source_code = request.source_code
@@ -101,14 +109,25 @@ class AnalysisService:
             result=result,
             status="completed",
             repository_url=repository_url,
+            user_id=user_id,
         )
 
-    async def list_analyses(self, limit: int = AnalysisRepository.DEFAULT_LIMIT) -> list[Analysis]:
-        """Return persisted analyses, newest first."""
-        return await self._repository.list_analyses(limit)
+    async def list_analyses(
+        self,
+        limit: int = AnalysisRepository.DEFAULT_LIMIT,
+        *,
+        user_id: str,
+    ) -> list[Analysis]:
+        """Return the owner's persisted analyses, newest first."""
+        return await self._repository.list_analyses(limit, user_id=user_id)
 
-    async def get_analysis(self, analysis_id: UUID | str) -> Analysis | None:
-        """Return an analysis by UUID, or ``None`` when it does not exist."""
+    async def get_analysis(
+        self,
+        analysis_id: UUID | str,
+        *,
+        user_id: str,
+    ) -> Analysis | None:
+        """Return one of the owner's analyses, or ``None`` when not visible."""
         try:
             identifier = (
                 analysis_id
@@ -117,7 +136,7 @@ class AnalysisService:
             )
         except (TypeError, ValueError):
             return None
-        return await self._repository.get_by_id(identifier)
+        return await self._repository.get_by_id(identifier, user_id=user_id)
 
     @staticmethod
     def _enforce_source_code_limit(source_code: str) -> None:

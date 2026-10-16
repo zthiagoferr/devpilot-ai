@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 
 from app.api.analysis import get_analysis_service
 from app.api.analysis import router as analysis_router
+from app.api.deps import get_token_verifier
 from app.main import app
+from tests.fake_auth import TEST_TOKEN, FakeTokenVerifier, bearer
 
 
 client = TestClient(app)
@@ -171,13 +173,20 @@ class FakeAnalysisService:
         ]
         self.requested_limits: list[int] = []
         self.created_requests: list[dict[str, Any]] = []
+        self.created_user_ids: list[str | None] = []
+        self.requested_user_ids: list[str | None] = []
 
-    async def create_analysis(self, analysis: Any) -> dict[str, Any]:
+    async def create_analysis(
+        self,
+        analysis: Any,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         if hasattr(analysis, "model_dump"):
             values = analysis.model_dump()
         else:
             values = dict(analysis)
         self.created_requests.append(values)
+        self.created_user_ids.append(user_id)
         record = self.records[0].copy()
         record.update(
             {
@@ -188,15 +197,27 @@ class FakeAnalysisService:
         )
         return record
 
-    async def list_analyses(self, limit: int = 20) -> list[dict[str, Any]]:
+    async def list_analyses(
+        self,
+        limit: int = 20,
+        *,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         self.requested_limits.append(limit)
+        self.requested_user_ids.append(user_id)
         return sorted(
             self.records,
             key=lambda record: record["created_at"],
             reverse=True,
         )[:limit]
 
-    async def get_analysis(self, analysis_id: UUID) -> dict[str, Any] | None:
+    async def get_analysis(
+        self,
+        analysis_id: UUID,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        self.requested_user_ids.append(user_id)
         return next(
             (
                 record
@@ -221,7 +242,10 @@ def _test_client() -> tuple[TestClient, FakeAnalysisService]:
     test_app = FastAPI()
     test_app.include_router(analysis_router)
     test_app.dependency_overrides[get_analysis_service] = lambda: service
-    return TestClient(test_app), service
+    # Reads require a verified token; the fake keeps the real wiring (header
+    # parsing, ownership plumbing) while removing the Firebase dependency.
+    test_app.dependency_overrides[get_token_verifier] = lambda: FakeTokenVerifier()
+    return TestClient(test_app, headers=bearer(TEST_TOKEN)), service
 
 
 def _assert_complete_record(data: dict[str, Any], expected_id: UUID) -> None:
@@ -274,6 +298,35 @@ def test_create_analysis_passes_dashboard_payload_to_service() -> None:
 
     assert response.status_code == 201
     assert service.created_requests == [payload]
+
+
+def test_create_analysis_records_the_verified_owner_and_hides_it() -> None:
+    """Ownership comes from the token and is never echoed back."""
+    test_client, service = _test_client()
+
+    response = test_client.post(
+        "/analyses",
+        json={
+            "task": "code_analysis",
+            "project_name": "owned-project",
+            "source_code": "def newest():\n    return True\n",
+            # A client must not be able to choose (or forge) the owner.
+            "user_id": "attacker-controlled",
+        },
+    )
+
+    assert response.status_code == 201
+    assert service.created_user_ids == ["user-1"]
+    assert "user_id" not in response.json()
+
+
+def test_list_and_detail_receive_the_verified_owner() -> None:
+    test_client, service = _test_client()
+
+    assert test_client.get("/analyses").status_code == 200
+    assert test_client.get(f"/analyses/{CREATED_ID}").status_code == 200
+
+    assert service.requested_user_ids == ["user-1", "user-1"]
 
 
 def test_list_analyses_uses_default_limit_and_newest_first() -> None:
