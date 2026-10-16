@@ -48,6 +48,15 @@ class Analysis(Base):
         String(500),
         nullable=True,
     )
+    # Owning Firebase user (``uid``), or ``NULL`` for an anonymous analysis.
+    # Existing rows created before authentication existed stay ``NULL`` and are
+    # therefore only reachable by the public creation endpoint, never by an
+    # authenticated listing.
+    user_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
