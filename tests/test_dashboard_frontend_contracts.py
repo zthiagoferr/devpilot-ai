@@ -11,7 +11,11 @@ concrete regressions reported for the dashboard:
   because the renderer looked for selectors the markup does not define;
 * the recent-activity list collapsed into the narrow timeline column, the detail
   fields and the issue list had no styling, and the history table lost its
-  columns under compression.
+  columns under compression;
+* "Carregar arquivos do repositório" produced no visible feedback on any path
+  (loading, success, empty repository, HTTP error, network error) because every
+  message was written to the ``visually-hidden`` live region only, and a failed
+  request left the previously loaded file list selectable.
 """
 
 from __future__ import annotations
@@ -72,6 +76,13 @@ def _tags(html: str, tag: str) -> list[dict[str, str | None]]:
 def _compact(source: str) -> str:
     """Collapse whitespace so substring checks survive re-formatting."""
     return re.sub(r"\s+", " ", source)
+
+
+def _function(script: str, name: str) -> str:
+    """Return the source of the ``name`` function up to the next declaration."""
+    start = script.index(f"function {name}(")
+    match = re.search(r"function [A-Za-z_$][\w$]*\(", script[start + 1 :])
+    return script[start:] if match is None else script[start : start + 1 + match.start()]
 
 
 def _css_declarations(css: str, selector: str) -> list[str]:
@@ -234,6 +245,8 @@ def test_dashboard_javascript_data_hooks_exist_in_the_markup() -> None:
         "data-load-repository",
         "data-submit-github",
         "data-repository-file",
+        "data-analysis-status",
+        "data-error-message",
         "data-recent-list",
         "data-recent-empty",
         "data-history-list",
@@ -264,3 +277,117 @@ def test_dashboard_javascript_data_hooks_exist_in_the_markup() -> None:
 
     assert [hook for hook in required_hooks if hook not in html] == []
     assert [hook for hook in javascript_hooks if hook not in script] == []
+
+
+def test_dashboard_repository_load_button_is_wired_to_the_loader() -> None:
+    """Clicking "Carregar arquivos do repositório" must call the loader."""
+    script = _compact(_javascript())
+
+    wiring = _function(script, "init")
+    loader = wiring[
+        wiring.index("var loader = one(["): wiring.index("var fileSelect = one([")
+    ]
+    assert "data-load-repository" in loader
+    assert 'addEventListener("click"' in loader
+    assert "loadRepository(github)" in loader
+    assert "event.preventDefault()" in loader
+
+
+def test_dashboard_feedback_is_mirrored_into_a_visible_status_node() -> None:
+    """The live region is screen-reader only, so feedback needs a visible twin.
+
+    The reported bug ("no files and no feedback") happened because
+    ``announce`` wrote exclusively to ``#announcements``, which is
+    ``visually-hidden``: assistive technology heard the outcome while a sighted
+    user saw nothing.
+    """
+    html = _dashboard_html()
+    script = _compact(_javascript())
+
+    announcements = [tag for tag in _tags(html, "div") if tag.get("id") == "announcements"]
+    assert len(announcements) == 1
+    assert "visually-hidden" in (announcements[0].get("class") or "")
+
+    visible = [tag for tag in _tags(html, "div") if "data-analysis-status" in tag]
+    assert len(visible) == 1, "exactly one visible status line must receive the feedback"
+    status = visible[0]
+    assert "visually-hidden" not in (status.get("class") or "")
+    assert "hidden" in status, "the status line starts hidden and is revealed on demand"
+
+    body = _function(script, "announce")
+    assert "[data-analysis-status]" in body
+    assert 'target.hidden = value === ""' in body
+    assert "target.dataset.status" in body
+
+
+def test_dashboard_announcements_carry_a_visible_tone() -> None:
+    """Error/success/info tones must have a visible treatment."""
+    css = _css()
+
+    error = " ".join(_css_declarations(css, '.inline-status[data-status="error"]'))
+    success = " ".join(_css_declarations(css, '.inline-status[data-status="success"]'))
+    assert "--red" in error
+    assert "--mint" in success
+
+    script = _compact(_javascript())
+    assert '"success"' in script
+    assert 'error ? "error" : "info"' in script
+
+
+def test_dashboard_request_surfaces_api_details_and_translates_network_failures() -> None:
+    """Non-OK responses keep their API detail; transport failures are translated."""
+    body = _function(_compact(_javascript()), "request")
+
+    # Non-OK responses: ``detail`` first, then ``message``, then the status code.
+    assert "body.detail" in body
+    assert "body.message" in body
+    assert "response.status" in body
+
+    # ``fetch`` rejects with a ``TypeError`` whose message ("Failed to fetch") is
+    # useless to the user. Only the transport rejection handler may translate it,
+    # so API errors keep the message thrown by the fulfilled handler.
+    assert "Não foi possível acessar a API do DevPilot" in body
+    assert "}, function () {" in body
+    assert "if (error && error.message) throw error;" not in body
+
+
+def test_dashboard_repository_success_fills_and_enables_the_file_select() -> None:
+    body = _function(_compact(_javascript()), "loadRepository")
+
+    assert "state.repositoryFiles" in body
+    assert "select.disabled = empty" in body
+    assert 'announce(message, false, "success")' in body
+    assert '"Arquivos do repositório carregados ("' in body
+    assert "submit.disabled = true" in body
+
+
+def test_dashboard_repository_empty_result_is_announced() -> None:
+    """A valid repository without Python files is a 200 with ``files: []``."""
+    body = _function(_compact(_javascript()), "loadRepository")
+
+    assert "payload.message" in body
+    assert "Nenhum arquivo Python elegível foi encontrado neste repositório." in body
+    assert "Nenhum arquivo Python encontrado neste repositório" in body
+
+
+def test_dashboard_failed_repository_load_clears_stale_files() -> None:
+    """A failed load must not leave a file list belonging to another reference."""
+    body = _function(_compact(_javascript()), "loadRepository")
+
+    assert "clearRepositoryFiles(form)" in body
+    rejection = body[body.index(".catch(function (error)") :]
+    assert "clearRepositoryFiles(form)" in rejection
+    assert "id === sequence.repository" in rejection
+
+    reset = _function(_compact(_javascript()), "clearRepositoryFiles")
+    assert "state.repositoryFiles = []" in reset
+    assert "select.disabled = true" in reset
+    assert "submit.disabled = true" in reset
+
+
+def test_dashboard_analysis_failure_publishes_the_reason_visibly() -> None:
+    """The visible error block must show the reason, not only the generic text."""
+    body = _function(_compact(_javascript()), "submitForm")
+
+    assert "[data-error-message]" in body
+    assert "detail.textContent = error.message" in body
