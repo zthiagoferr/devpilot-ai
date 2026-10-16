@@ -584,13 +584,12 @@ def test_dashboard_loads_the_auth_sdk_lazily_from_the_pinned_cdn() -> None:
         assert not re.match(r"^(https?:)?//", reference), reference
 
 
-def test_dashboard_without_firebase_configuration_keeps_the_visitor_flows() -> None:
+def test_dashboard_auth_stays_guarded_when_unconfigured() -> None:
     script = _compact(_javascript())
 
-    # Placeholder (empty) public configuration: no Firebase project required.
-    assert 'apiKey: ""' in script
-    assert 'projectId: ""' in script
-
+    # The degraded path is driven by the guards below, not by the config values:
+    # ``authConfigured`` reads the public config at runtime, so the visitor flows
+    # keep working even if a deployment ships without a Firebase project.
     configured = _function(script, "authConfigured")
     assert "FIREBASE_CONFIG.apiKey" in configured
     assert "FIREBASE_CONFIG.projectId" in configured

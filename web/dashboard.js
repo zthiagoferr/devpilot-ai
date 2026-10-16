@@ -15,17 +15,21 @@
     status: { method: "GET", path: "/agents/orchestrator" }
   };
 
-  // Firebase configuration. These values are *public by nature*: they identify
-  // the project in the browser and are not secrets (the service account used by
-  // the backend is a secret and never lives here). Fill them from the Firebase
-  // console to enable sign-in. While they are empty the dashboard degrades
-  // gracefully: the visitor flows (manual analysis and repository load) keep
-  // working and the account area explains that sign-in is unavailable.
+  // Firebase configuration for the devpilot-ai-e78f0 project. These values are
+  // *public by nature*: they identify the project in the browser and are not
+  // secrets (the service account used by the backend is a secret and never lives
+  // here). ``measurementId`` is intentionally omitted: it only feeds Google
+  // Analytics, and this bundle imports no analytics SDK. The account area still
+  // degrades gracefully when the values are absent: the visitor flows (manual
+  // analysis and repository load) keep working and the account area explains
+  // that sign-in is unavailable.
   var FIREBASE_CONFIG = {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    appId: ""
+    apiKey: "AIzaSyDGFEavZI0KnlUjhqk6DAJ8eRWId4n-7Fg",
+    authDomain: "devpilot-ai-e78f0.firebaseapp.com",
+    projectId: "devpilot-ai-e78f0",
+    storageBucket: "devpilot-ai-e78f0.firebasestorage.app",
+    messagingSenderId: "760068755230",
+    appId: "1:760068755230:web:f7b542b79b3b6277fdc30f"
   };
   // The SDK is imported lazily from the official CDN (pinned version) and only
   // when the configuration above is present. No <script src> is added to the
