@@ -23,6 +23,7 @@ _DATABASE_EXPORTS = frozenset(
         "get_engine",
         "get_session",
         "get_session_factory",
+        "prepare_async_url",
         "session_context",
         "session_scope",
     }

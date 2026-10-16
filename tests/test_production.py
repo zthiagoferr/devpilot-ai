@@ -55,6 +55,63 @@ def test_readiness_does_not_expose_database_errors_or_credentials(
         assert secret not in response.text
 
 
+def test_readiness_returns_503_when_database_connection_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "postgresql://fake_user:fake_password@example.invalid/fake_db"
+
+    class _BrokenConnection:
+        async def __aenter__(self) -> object:
+            raise OSError(f"connection refused: {secret}")
+
+        async def __aexit__(self, *exc_info: object) -> bool:
+            return False
+
+    class _BrokenEngine:
+        def connect(self) -> _BrokenConnection:
+            return _BrokenConnection()
+
+    monkeypatch.setattr(
+        app.main.session, "get_engine", lambda: _BrokenEngine()
+    )
+
+    with TestClient(app.main.app) as client:
+        response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Database readiness check failed."
+    assert secret not in response.text
+
+
+def test_readiness_returns_503_when_database_probe_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    class _HangingConnection:
+        async def __aenter__(self) -> object:
+            await asyncio.sleep(5)
+            return object()
+
+        async def __aexit__(self, *exc_info: object) -> bool:
+            return False
+
+    class _HangingEngine:
+        def connect(self) -> _HangingConnection:
+            return _HangingConnection()
+
+    monkeypatch.setattr(
+        app.main.session, "get_engine", lambda: _HangingEngine()
+    )
+    monkeypatch.setattr(app.main, "READINESS_TIMEOUT_SECONDS", 0.05)
+
+    with TestClient(app.main.app) as client:
+        response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Database readiness check failed."
+
+
 def test_liveness_is_healthy_without_database_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

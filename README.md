@@ -167,6 +167,8 @@ docker compose up --build
 
 The Compose configuration is the supported containerized local/production-style configuration in this repository. It does not claim cloud deployment, Kubernetes support, or a distributed execution model.
 
+For a step-by-step first public deployment (Render + Neon), see [DEPLOY.md](DEPLOY.md).
+
 ## Migrations
 
 ```bash

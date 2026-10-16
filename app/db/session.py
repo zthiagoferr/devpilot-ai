@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Final
 
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -24,6 +24,14 @@ from app.core.config import get_settings
 
 
 DEFAULT_DEVELOPMENT_DATABASE_URL: Final[str] = "sqlite+aiosqlite:///./dev.db"
+
+# ``asyncpg`` does not accept libpq-only query parameters as keyword arguments,
+# yet the SQLAlchemy asyncpg dialect forwards every URL query parameter
+# verbatim. Neon connection strings ship ``?sslmode=require`` (and often
+# ``channel_binding=require``), so they are translated before the engine is
+# created.
+_SSL_MODE_PARAM: Final[str] = "sslmode"
+_ASYNC_UNSUPPORTED_LIBPQ_PARAMS: Final[tuple[str, ...]] = ("channel_binding",)
 
 # Kept as a public setting for applications and tests that configure the module
 # directly.  The environment is checked again when the engine is first used so
@@ -66,6 +74,64 @@ def _configured_database_url() -> str:
     return value
 
 
+def _parse_url(value: str) -> URL:
+    try:
+        return make_url(value)
+    except Exception:
+        raise RuntimeError("DATABASE_URL is invalid.") from None
+
+
+def _split_asyncpg_params(parsed: URL) -> tuple[URL, dict[str, object]]:
+    """Translate libpq query parameters into asyncpg connect arguments.
+
+    Returns the URL without the translated parameters plus the ``connect_args``
+    asyncpg needs. ``sslmode`` becomes the asyncpg ``ssl`` argument (which
+    accepts the libpq mode string, for example ``require``); parameters asyncpg
+    cannot accept as keyword arguments are removed.
+    """
+    query = dict(parsed.query)
+    if not query:
+        return parsed, {}
+
+    connect_args: dict[str, object] = {}
+    sslmode = query.pop(_SSL_MODE_PARAM, None)
+    if sslmode:
+        connect_args["ssl"] = sslmode
+    for name in _ASYNC_UNSUPPORTED_LIBPQ_PARAMS:
+        query.pop(name, None)
+
+    if query == dict(parsed.query):
+        return parsed, connect_args
+    return parsed.set(query=query), connect_args
+
+
+def _to_asyncpg_url(parsed: URL) -> tuple[URL, dict[str, object]]:
+    """Point a PostgreSQL URL at the asyncpg driver and translate libpq params."""
+    driver = parsed.drivername.lower()
+    if driver in {"postgres", "postgresql"}:
+        parsed = parsed.set(drivername="postgresql+asyncpg")
+        driver = parsed.drivername
+    if driver == "postgresql+asyncpg":
+        return _split_asyncpg_params(parsed)
+    return parsed, {}
+
+
+def prepare_async_url(value: str) -> tuple[str, dict[str, object]]:
+    """Return ``(async_url, connect_args)`` for the async engine and Alembic.
+
+    Normalises a bare ``postgres``/``postgresql`` URL to the ``asyncpg`` driver
+    and translates libpq-only query parameters (``sslmode``) into asyncpg
+    connect arguments. Non-PostgreSQL URLs are returned unchanged with no extra
+    connect arguments.
+
+    The returned string is meant only for the engine and the migration tool; it
+    is never logged, and the password must stay intact so authentication works
+    (``str(URL)`` would mask it).
+    """
+    parsed, connect_args = _to_asyncpg_url(_parse_url(value))
+    return parsed.render_as_string(hide_password=False), connect_args
+
+
 def _normalise_and_validate_url(value: str) -> tuple[str, bool]:
     """Return an async-driver URL and whether it is PostgreSQL.
 
@@ -73,16 +139,9 @@ def _normalise_and_validate_url(value: str) -> tuple[str, bool]:
     database.  PostgreSQL is accepted in every environment, but is mandatory
     in production.
     """
-    try:
-        parsed = make_url(value)
-    except Exception:
-        raise RuntimeError("DATABASE_URL is invalid.") from None
+    parsed = _to_asyncpg_url(_parse_url(value))[0]
 
     driver = parsed.drivername.lower()
-    if driver in {"postgres", "postgresql"}:
-        parsed = parsed.set(drivername="postgresql+asyncpg")
-        driver = parsed.drivername
-
     is_postgresql = driver.startswith("postgresql+")
     is_sqlite = driver == "sqlite+aiosqlite"
 
@@ -93,7 +152,8 @@ def _normalise_and_validate_url(value: str) -> tuple[str, bool]:
             "DATABASE_URL must use PostgreSQL or the safe development SQLite URL."
         )
 
-    return str(parsed), is_postgresql
+    # ``str(URL)`` masks the password; the engine needs the real value.
+    return parsed.render_as_string(hide_password=False), is_postgresql
 
 
 def get_engine() -> AsyncEngine:
@@ -116,6 +176,9 @@ def get_engine() -> AsyncEngine:
             pool_pre_ping=True,
             pool_recycle=1800,
         )
+        _, connect_args = prepare_async_url(configured_url)
+        if connect_args:
+            options["connect_args"] = connect_args
 
     try:
         _engine = create_async_engine(database_url, **options)

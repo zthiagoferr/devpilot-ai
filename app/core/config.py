@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     # shared by every download of that call and is enforced on top of the
     # per-request HTTP timeout.
     github_load_total_seconds: float = 60.0
+    # In-memory rate limiting for the expensive public endpoints
+    # (``POST /analyses`` and ``POST /repositories/load``). The default is
+    # deliberately generous so local development and the test suite are never
+    # throttled; public deployments should lower ``rate_limit_requests``
+    # (for example to 10). A non-positive value disables throttling.
+    rate_limit_requests: int = 100
+    rate_limit_window_seconds: float = 60.0
+    # Trust ``X-Forwarded-For`` only when the application runs behind a known
+    # reverse proxy (for example the Render/Cloudflare edge). Never enable this
+    # when clients can reach the application directly, because the header can be
+    # forged.
+    trust_proxy_headers: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -62,6 +74,19 @@ class Settings(BaseSettings):
         if self.database_url is None:
             return None
         return self.database_url.get_secret_value()
+
+    def get_frontend_origins(self) -> list[str]:
+        """Return the configured CORS allowlist as exact origins.
+
+        The setting is a comma-separated string kept for compatibility; this
+        accessor normalizes it into a list, trimming whitespace and discarding
+        empty entries so a blank or malformed value never becomes a wildcard.
+        """
+        return [
+            origin.strip()
+            for origin in self.frontend_origins.split(",")
+            if origin.strip()
+        ]
 
 
 @lru_cache

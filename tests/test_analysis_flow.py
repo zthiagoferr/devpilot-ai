@@ -334,3 +334,50 @@ async def test_repository_round_trip_with_real_session(tmp_path) -> None:
             assert [record.id for record in listed] == [created.id]
     finally:
         await engine.dispose()
+
+
+def test_create_analysis_without_llm_api_key_returns_real_ast_result(
+    analysis_client,
+    monkeypatch,
+) -> None:
+    """The AST analysis flow must work without any LLM key configured.
+
+    With a fake/absent provider and no key, startup must not fail and the
+    persisted result must contain the real deterministic AST findings, without
+    any LLM-fabricated insights.
+    """
+    from app.core.config import Settings, get_settings
+
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    get_settings.cache_clear()
+
+    try:
+        settings = Settings()
+        assert settings.llm_provider == "fake"
+        assert not (
+            settings.llm_api_key and settings.llm_api_key.get_secret_value()
+        )
+
+        client, _ = analysis_client
+        response = client.post(
+            "/analyses",
+            json={
+                "task": "code_analysis",
+                "project_name": "no-llm-project",
+                "source_code": SAMPLE_SOURCE,
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        result = response.json()["result"]
+
+        # Real, deterministic analysis: a score, a summary and issues.
+        assert isinstance(result["score"], int)
+        assert result["score"] < 100
+        assert isinstance(result["summary"], str)
+        assert result["issues"]
+        # No LLM configured means no fabricated insights.
+        assert "insights" not in result
+    finally:
+        get_settings.cache_clear()

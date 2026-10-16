@@ -102,11 +102,29 @@ def _get_database_url() -> str:
         return _DEFAULT_DEVELOPMENT_DATABASE_URL
 
 
-def _configure_database_url() -> None:
-    """Put the settings URL into Alembic's configuration."""
-    url = _get_database_url()
+def _prepare_database_url(value: str) -> tuple[str, dict[str, object]]:
+    """Normalise the URL with the same helper the application uses.
+
+    This keeps Alembic's driver selection and libpq parameter handling
+    (``sslmode`` for Neon) aligned with :mod:`app.db.session`.
+    """
+    try:
+        from app.db.session import prepare_async_url
+    except ImportError:
+        return value, {}
+    return prepare_async_url(value)
+
+
+def _configure_database_url() -> tuple[str, dict[str, object]]:
+    """Put the settings URL into Alembic's configuration.
+
+    Returns the normalised URL together with the asyncpg connect arguments that
+    migrations must apply (for example the translated ``ssl`` argument).
+    """
+    url, connect_args = _prepare_database_url(_get_database_url())
     # ConfigParser interpolation treats percent signs specially.
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+    return url, connect_args
 
 
 target_metadata = _load_metadata()
@@ -138,13 +156,14 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Create an async engine and run migrations through a synchronous callback."""
-    _configure_database_url()
+    _, connect_args = _configure_database_url()
     section = config.get_section(config.config_ini_section) or {}
 
     connectable = async_engine_from_config(
         section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:

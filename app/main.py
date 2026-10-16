@@ -1,9 +1,11 @@
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -11,6 +13,7 @@ from app.api.agents import router as agents_router
 from app.api.analysis import router as analysis_router
 from app.api.dashboard import router as dashboard_router
 from app.core.config import get_settings
+from app.core.rate_limit import InMemoryRateLimiter, RateLimitMiddleware
 from app.db import session
 
 try:
@@ -20,6 +23,10 @@ except ModuleNotFoundError:
 
 
 logger = logging.getLogger("devpilot")
+
+# Upper bound, in seconds, for the readiness database probe. Kept short so an
+# unreachable database fails ``/ready`` quickly without hanging the request.
+READINESS_TIMEOUT_SECONDS = 5.0
 
 
 def _configure_logging() -> int:
@@ -67,6 +74,24 @@ if github_router is not None:
     app.include_router(github_router)
 
 
+# Rate limiting is applied first so CORS (added below) stays the outermost
+# middleware and can annotate throttling responses with the correct headers.
+_rate_limiter = InMemoryRateLimiter()
+app.add_middleware(RateLimitMiddleware, limiter=_rate_limiter)
+
+# Cross-origin access is opt-in and limited to the exact configured origins.
+# ``*`` and credentialed cross-origin requests are intentionally not allowed.
+_frontend_origins = get_settings().get_frontend_origins()
+if _frontend_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_frontend_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Accept", "Content-Type"],
+    )
+
+
 project_root = Path(__file__).resolve().parent.parent
 web_directory = project_root / "web"
 if not web_directory.is_dir():
@@ -92,9 +117,19 @@ async def health_check() -> dict[str, str]:
 
 
 async def check_database_readiness() -> bool:
-    engine = session.get_engine()
-    async with engine.connect() as connection:
-        await connection.execute(text("SELECT 1"))
+    """Probe the configured database with one bounded ``SELECT 1``.
+
+    The query runs on the active engine and is wrapped in a short timeout so a
+    hung or unreachable database fails readiness quickly instead of stalling the
+    request. Connection details are never returned by the caller.
+    """
+
+    async def _probe() -> None:
+        engine = session.get_engine()
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+
+    await asyncio.wait_for(_probe(), timeout=READINESS_TIMEOUT_SECONDS)
     return True
 
 
