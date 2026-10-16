@@ -78,6 +78,16 @@ def _compact(source: str) -> str:
     return re.sub(r"\s+", " ", source)
 
 
+def _without_comments(source: str) -> str:
+    """Drop ``//`` line comments so contracts only match executable code.
+
+    Applied to the raw source, before :func:`_compact` collapses the newlines
+    that delimit a line comment; otherwise the strip would swallow the code
+    that follows the comment on the same logical line.
+    """
+    return re.sub(r"//[^\n]*", "", source)
+
+
 def _function(script: str, name: str) -> str:
     """Return the source of the ``name`` function up to the next declaration."""
     start = script.index(f"function {name}(")
@@ -523,9 +533,10 @@ def test_dashboard_restores_the_session_and_wires_every_auth_flow() -> None:
 
 
 def test_dashboard_registers_the_auth_state_observer_with_the_sdk_signature() -> None:
-    script = _compact(_javascript())
-
-    start = _function(script, "startAuth")
+    # ``startAuth`` documents the bug with an example call in a comment, so the
+    # comments must be stripped before matching or the contract would assert
+    # against the explanation instead of the call the code actually makes.
+    start = _compact(_without_comments(_function(_javascript(), "startAuth")))
     match = re.search(r"([\w$.]+)\.onAuthStateChanged\(([^)]*)\)", start)
     assert match, "startAuth must register an auth state observer"
 
