@@ -101,6 +101,29 @@ def test_preflight_supports_multiple_configured_origins(build_app) -> None:
         assert response.headers.get("access-control-allow-origin") == origin
 
 
+def test_preflight_allows_the_authorization_header(build_app) -> None:
+    """The browser only sends ``Authorization`` when the preflight allows it.
+
+    Without ``Authorization`` in ``Access-Control-Allow-Headers`` every
+    authenticated request from the published frontend fails before it is sent.
+    """
+    app = build_app(REPOSITORY_FRONTEND)
+
+    response = TestClient(app).options(
+        "/analyses",
+        headers={
+            "Origin": REPOSITORY_FRONTEND,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    allowed = response.headers.get("access-control-allow-headers", "").lower()
+    assert "authorization" in allowed
+    assert "content-type" in allowed
+
+
 def test_no_cors_middleware_when_origins_are_not_configured(build_app) -> None:
     app = build_app(None)
 

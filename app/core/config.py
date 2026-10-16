@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     github_token: _ComparableSecretStr | None = None
     github_api_base_url: str = "https://api.github.com"
     database_url: _ComparableSecretStr | None = None
+    # Firebase Authentication. The project identifier is not a secret; the
+    # service account JSON is. Both are optional: without them the API runs
+    # with authentication disabled (public endpoints stay public) instead of
+    # refusing to start.
+    firebase_project_id: str | None = None
+    firebase_service_account_json: _ComparableSecretStr | None = None
     log_level: str = "INFO"
     frontend_origins: str = ""
     llm_timeout_seconds: float = 30.0
