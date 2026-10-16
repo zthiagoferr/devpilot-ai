@@ -5,7 +5,7 @@
   var STATIC = false;
   var started = false;
   var statusTimer = null;
-  var state = { history: [], selectedId: null, repositoryFiles: [], view: "overview" };
+  var state = { history: [], selectedId: null, repositoryFiles: [], view: "overview", sourceTab: "code" };
   var sequence = { history: 0, detail: 0, repository: 0 };
   var CONTRACT = {
     history: { method: "GET", path: "/analyses" },
@@ -56,6 +56,50 @@
       node.hidden = !visible;
       node.setAttribute("aria-hidden", visible ? "false" : "true");
     });
+  }
+
+  function sourceTabNodes() { return many("[data-source-tab]"); }
+  function sourcePanelNodes() { return many("[data-source-panel]"); }
+
+  // ARIA tabs pattern: a single tab is selected and keeps the tab sequence
+  // (roving tabindex) while owning the only visible panel.
+  function activateSourceTab(tab, focus) {
+    if (!tab) return null;
+    var value = text(tab.dataset.sourceTab);
+    if (!value) return null;
+    sourceTabNodes().forEach(function (node) {
+      var active = node === tab;
+      node.classList.toggle("is-active", active);
+      node.setAttribute("aria-selected", active ? "true" : "false");
+      node.setAttribute("tabindex", active ? "0" : "-1");
+      if (active && focus && typeof node.focus === "function") node.focus();
+    });
+    sourcePanelNodes().forEach(function (panel) {
+      var active = panel.dataset.sourcePanel === value;
+      panel.hidden = !active;
+      panel.classList.toggle("is-active", active);
+    });
+    state.sourceTab = value;
+    return value;
+  }
+
+  function handleSourceTabKeydown(event) {
+    var eventTarget = event.target;
+    var tab = eventTarget && eventTarget.closest ? eventTarget.closest("[data-source-tab]") : null;
+    if (!tab || event.altKey || event.ctrlKey || event.metaKey) return;
+    var tabs = sourceTabNodes(), index = tabs.indexOf(tab);
+    if (index < 0) return;
+    var next = null;
+    if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+    else if (event.key === "ArrowLeft") next = tabs[(index - 1 + tabs.length) % tabs.length];
+    else if (event.key === "Home") next = tabs[0];
+    else if (event.key === "End") next = tabs[tabs.length - 1];
+    else if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+      event.preventDefault(); activateSourceTab(tab, false); return;
+    }
+    if (!next) return;
+    event.preventDefault();
+    activateSourceTab(next, true);
   }
 
   function setBusy(button, busy) {
@@ -118,7 +162,8 @@
       pending: "Pendente", queued: "Na fila", processing: "Em processamento",
       running: "Em processamento", failed: "Falhou", error: "Erro",
       unavailable: "Indisponível", connected: "Conectado", online: "Conectado",
-      healthy: "Operacional", degraded: "Instável", offline: "Indisponível"
+      healthy: "Operacional", ready: "Operacional", ok: "Operacional", up: "Operacional",
+      degraded: "Instável", offline: "Indisponível"
     };
     return labels[raw.toLowerCase()] || raw;
   }
@@ -170,7 +215,11 @@
     issues.forEach(function (issue) {
       var item = document.createElement("li");
       item.className = "issue-list__item";
-      item.textContent = text(objectOf(issue) ? issue.message || issue.description || issue.title : issue, "Problema sem descrição");
+      var data = objectOf(issue);
+      var message = text(data ? data.message || data.description || data.title : issue, "Problema sem descrição");
+      var line = data ? data.line : null;
+      if (line !== null && line !== undefined && line !== "") message = "Linha " + text(line) + ": " + message;
+      item.textContent = message;
       list.appendChild(item);
     });
     target.appendChild(list);
@@ -178,15 +227,28 @@
 
   function renderSource(target, source) {
     if (!target) return;
-    var code = one(["[data-source-code-block]", "pre code[data-source-code]", "code[data-source-code]"], target);
+    var container = one(["section.source-output", "[data-source-output]", "[data-source-container]"], target);
+    var scope = container || target;
+    var code = one(["[data-source-code-block]", "code[data-source-code]", "[data-source-code]", "pre code"], scope);
     if (!code) {
       var pre = document.createElement("pre");
-      pre.className = "source-code";
+      pre.className = "source-code-output";
       code = document.createElement("code");
       code.setAttribute("data-source-code-block", "true");
-      pre.appendChild(code); target.appendChild(pre);
+      pre.appendChild(code);
+      scope.appendChild(pre);
     }
-    code.textContent = text(source, "Código-fonte indisponível.");
+    var value = text(source);
+    if (value === "") {
+      // The contract guarantees ``source_code``; an empty value means the
+      // record carries no code, so the section is hidden instead of showing an
+      // ambiguous placeholder under a "Código em revisão" heading.
+      code.textContent = "";
+      if (container) container.hidden = true;
+      return;
+    }
+    if (container) container.hidden = false;
+    code.textContent = value;
   }
 
   function renderRecord(payload) {
@@ -200,7 +262,8 @@
     setText(section, ["[data-detail-meta]", "[data-task]"], item.task, "Análise de código");
     setText(section, ["[data-created-at]", "[data-detail-date]"], formatDate(dateOf(item)), "—");
     setText(section, ["[data-analysis-id]", "[data-detail-id]"], item.id, "—");
-    renderSource(one(["[data-source-output]", "[data-source-container]"], section), item.source_code || item.content);
+    setText(section, ["[data-source-type]", "[data-origin]"], item.repository_url || "Manual", "—");
+    renderSource(one([".source-output", "[data-source-output]", "[data-source-container]"], section) || section, item.source_code || item.content);
     var statusNode = one(["[data-result-status]", "[data-status]", "[data-detail-status]"], section);
     if (statusNode) { statusNode.textContent = status; statusNode.dataset.status = statusKey(status); }
     renderIssues(one(["[data-issues-list]", "[data-issues]"], section), result.issues || item.issues);
@@ -278,14 +341,26 @@
     var table = one(["[data-history-table-wrap]"]); if (table && (name === "loading" || name === "empty" || name === "error")) table.hidden = visible;
   }
 
+  function historyRefreshButtons() {
+    return many("[data-action='refresh-history'], [data-action='refresh'], [data-action='retry-history']");
+  }
+
+  function setRefreshBusy(busy) {
+    historyRefreshButtons().forEach(function (button) {
+      button.setAttribute("aria-busy", busy ? "true" : "false");
+      button.disabled = !!busy;
+    });
+  }
+
   function loadHistory() {
     var id = ++sequence.history; historyState("loading", true); historyState("empty", false); historyState("error", false);
+    setRefreshBusy(true);
     return request(CONTRACT.history.path).then(function (payload) {
       if (id !== sequence.history) return state.history;
       state.history = sorted(payload); renderHistory(state.history); renderRecent(state.history); renderMetrics(state.history); historyState("empty", !state.history.length);
       announce(state.history.length ? "Histórico de análises carregado." : "Ainda não há análises."); return state.history;
     }).catch(function (error) { if (id === sequence.history) { historyState("error", true); announce(error.message, true); } throw error; })
-      .finally(function () { if (id === sequence.history) historyState("loading", false); });
+      .finally(function () { if (id === sequence.history) { setRefreshBusy(false); historyState("loading", false); } });
   }
 
   function synchronizeStatuses() {
@@ -374,7 +449,10 @@
         announce("Nenhum arquivo Python elegível foi encontrado neste repositório.", true);
         return payload;
       }
-      announce("Arquivos do repositório carregados."); return payload;
+      announce(payload && payload.truncated
+        ? "Arquivos do repositório carregados. Parte do repositório foi omitida pelos limites de tamanho ou quantidade."
+        : "Arquivos do repositório carregados.");
+      return payload;
     }).catch(function (error) { announce(error.message, true); throw error; }).finally(function () { if (id === sequence.repository) setBusy(button, false); });
   }
 
@@ -390,8 +468,18 @@
 
   function updateStatus(value, label) {
     var status = statusLabel(value), key = statusKey(status);
-    many("[data-connection-status]").forEach(function (node) { node.textContent = label || status; node.dataset.status = key; });
-    many("[data-connection-dot], [data-status-dot], .status-dot").forEach(function (node) { node.dataset.status = key; node.classList.toggle("is-connected", key === "conectado" || key === "operacional"); node.classList.toggle("is-unavailable", key === "indisponível"); });
+    var connected = key === "conectado" || key === "operacional";
+    var unavailable = key === "indisponível" || key === "offline";
+    many("[data-connection-status]").forEach(function (node) {
+      node.textContent = label || status; node.dataset.status = key;
+      node.classList.toggle("is-connected", connected);
+      node.classList.toggle("is-unavailable", unavailable);
+    });
+    many("[data-connection-dot], [data-status-dot], .status-dot").forEach(function (node) {
+      node.dataset.status = key;
+      node.classList.toggle("is-connected", connected);
+      node.classList.toggle("is-unavailable", unavailable);
+    });
   }
 
   function init(options) {
@@ -409,14 +497,16 @@
       var fileSelect = one(["#repository-file", "[data-repository-file]"], github); if (fileSelect) fileSelect.addEventListener("change", function () { var selected = repositorySelection(github), sourceField = one(["textarea[name='source_code']", "[data-source-code]"], github), submit = one(["[data-submit-github]"], github); if (sourceField && selected.source) sourceField.value = selected.source; if (submit) submit.disabled = !selected.path; });
     }
     document.addEventListener("click", function (event) {
-      var target = event.target.closest ? event.target.closest("[data-analysis-id], [data-view], [data-nav], [data-view-target], [data-tab], [data-tab-target], [data-action]") : null; if (!target) return;
+      var target = event.target.closest ? event.target.closest("[data-analysis-id], [data-view], [data-nav], [data-view-target], [data-tab], [data-tab-target], [data-source-tab], [data-action]") : null; if (!target) return;
       var action = target.dataset.action;
       if (action === "toggle-sidebar" || action === "open-sidebar") { event.preventDefault(); many("[data-sidebar], .sidebar").forEach(function (sidebar) { sidebar.classList.toggle("is-open"); }); return; }
       if (action === "close-sidebar") { event.preventDefault(); many("[data-sidebar], .sidebar").forEach(function (sidebar) { sidebar.classList.remove("is-open"); }); return; }
       if (action === "refresh" || action === "refresh-history" || action === "retry-history") { event.preventDefault(); loadHistory().catch(function () {}); return; }
+      if (target.dataset.sourceTab) { event.preventDefault(); activateSourceTab(target, false); return; }
       if (target.dataset.analysisId) { event.preventDefault(); loadDetail(target.dataset.analysisId).catch(function () {}); return; }
       var view = target.dataset.view || target.dataset.nav || target.dataset.viewTarget || target.dataset.tab || target.dataset.tabTarget; if (view) { event.preventDefault(); showView(view); }
     });
+    document.addEventListener("keydown", handleSourceTabKeydown);
     window.addEventListener("hashchange", function () { showView(window.location.hash.slice(1), false); });
     showView(window.location.hash.slice(1) || "overview", false);
     if (!STATIC) {
@@ -426,6 +516,6 @@
     }
   }
 
-  window.DevPilotDashboard = { init: init, api: { request: request, createAnalysis: createAnalysis, loadHistory: loadHistory, loadDetail: loadDetail, loadRepository: loadRepository }, renderHistory: renderHistory, renderRecentActivity: renderRecent, renderRecord: renderRecord, showView: showView };
+  window.DevPilotDashboard = { init: init, api: { request: request, createAnalysis: createAnalysis, loadHistory: loadHistory, loadDetail: loadDetail, loadRepository: loadRepository }, renderHistory: renderHistory, renderRecentActivity: renderRecent, renderRecord: renderRecord, showView: showView, activateSourceTab: activateSourceTab };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { init(); }); else init();
 }());
