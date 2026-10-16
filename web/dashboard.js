@@ -228,6 +228,7 @@
   function renderSource(target, source) {
     if (!target) return;
     var container = one(["section.source-output", "[data-source-output]", "[data-source-container]"], target);
+    if (!container && target.matches && target.matches("section.source-output, [data-source-output], [data-source-container]")) container = target;
     var scope = container || target;
     var code = one(["[data-source-code-block]", "code[data-source-code]", "[data-source-code]", "pre code"], scope);
     if (!code) {
