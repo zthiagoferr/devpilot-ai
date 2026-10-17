@@ -91,8 +91,10 @@ def repository_analysis_client(tmp_path, monkeypatch):
     Base.metadata.create_all(sync_engine)
     sync_engine.dispose()
 
+    from app.api.deps import get_token_verifier
     from app.api.github import get_github_provider
     from app.main import app
+    from tests.fake_auth import TEST_TOKEN, FakeTokenVerifier
 
     async def override_provider():
         async with httpx.AsyncClient(
@@ -101,12 +103,19 @@ def repository_analysis_client(tmp_path, monkeypatch):
             yield GitHubHTTPXProvider(http)
 
     app.dependency_overrides[get_github_provider] = override_provider
+    # The whole flow runs as one verified user so the analysis is owned and can
+    # be read back through the owner-scoped history endpoints.
+    app.dependency_overrides[get_token_verifier] = lambda: FakeTokenVerifier()
 
     try:
-        with TestClient(app) as test_client:
+        with TestClient(
+            app,
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        ) as test_client:
             yield test_client, db_path
     finally:
         app.dependency_overrides.pop(get_github_provider, None)
+        app.dependency_overrides.pop(get_token_verifier, None)
         db_session.DATABASE_URL = original_module_url
         db_session._engine = None
         db_session._session_factory = None

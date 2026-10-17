@@ -78,6 +78,16 @@ def _compact(source: str) -> str:
     return re.sub(r"\s+", " ", source)
 
 
+def _without_comments(source: str) -> str:
+    """Drop ``//`` line comments so contracts only match executable code.
+
+    Applied to the raw source, before :func:`_compact` collapses the newlines
+    that delimit a line comment; otherwise the strip would swallow the code
+    that follows the comment on the same logical line.
+    """
+    return re.sub(r"//[^\n]*", "", source)
+
+
 def _function(script: str, name: str) -> str:
     """Return the source of the ``name`` function up to the next declaration."""
     start = script.index(f"function {name}(")
@@ -391,3 +401,219 @@ def test_dashboard_analysis_failure_publishes_the_reason_visibly() -> None:
 
     assert "[data-error-message]" in body
     assert "detail.textContent = error.message" in body
+
+
+# ---------------------------------------------------------------------------
+# Authentication (Firebase)
+# ---------------------------------------------------------------------------
+
+AUTH_HOOKS = (
+    "data-auth-dialog",
+    "data-auth-form",
+    "data-auth-action",
+    "data-auth-email",
+    "data-auth-password",
+    "data-auth-message",
+    "data-auth-loading",
+    "data-auth-account",
+    "data-auth-when",
+    "data-auth-user",
+    "data-auth-hint",
+    "data-auth-title",
+    "data-auth-lead",
+    "data-auth-verify",
+    "data-auth-history-prompt",
+    "data-auth-submit",
+)
+
+
+def test_dashboard_auth_hooks_exist_in_the_markup_and_in_the_script() -> None:
+    """The same bidirectional contract used for the analysis hooks.
+
+    Every ``data-auth-*`` hook the script queries must exist in the markup (and
+    vice versa), so the sign-in surface cannot silently drift out of sync.
+    """
+    html = _dashboard_html()
+    script = _compact(_javascript())
+
+    assert [hook for hook in AUTH_HOOKS if hook not in html] == []
+    assert [hook for hook in AUTH_HOOKS if hook not in script] == []
+
+
+def test_dashboard_auth_dialog_offers_login_register_reset_and_github() -> None:
+    html = _dashboard_html()
+
+    dialogs = [tag for tag in _tags(html, "dialog") if "data-auth-dialog" in tag]
+    assert len(dialogs) == 1, "exactly one auth dialog must exist"
+    assert dialogs[0].get("aria-labelledby") == "auth-title"
+
+    forms = {
+        form.get("data-auth-form")
+        for form in _tags(html, "form")
+        if form.get("data-auth-form")
+    }
+    assert forms == {"login", "register", "reset"}
+
+    actions = {
+        button.get("data-auth-action")
+        for button in _tags(html, "button")
+        if button.get("data-auth-action")
+    }
+    assert {
+        "open-login",
+        "open-register",
+        "open-reset",
+        "close",
+        "logout",
+        "github",
+        "verify-email",
+    } <= actions
+
+    # The password inputs must never be rendered as plain text.
+    password_inputs = [
+        tag
+        for tag in _tags(html, "input")
+        if "data-auth-password" in tag
+    ]
+    assert password_inputs
+    assert {tag.get("type") for tag in password_inputs} == {"password"}
+
+
+def test_dashboard_auth_messages_are_announced_by_the_shared_live_region() -> None:
+    html = _dashboard_html()
+    script = _compact(_javascript())
+
+    messages = [tag for tag in _tags(html, "p") if "data-auth-message" in tag]
+    assert len(messages) == 1
+    assert messages[0].get("role") == "status"
+    assert messages[0].get("aria-live") == "polite"
+
+    assert [tag for tag in _tags(html, "div") if tag.get("id") == "announcements"]
+
+    body = _function(script, "authMessage")
+    assert "announce(value" in body
+    assert "dataset.status" in body
+
+
+def test_dashboard_authenticated_requests_send_the_bearer_token() -> None:
+    script = _compact(_javascript())
+
+    body = _function(script, "request")
+    assert "Authorization" in body
+    assert "Bearer " in body
+    assert "authToken()" in body
+    # A 401 must ask for a login instead of surfacing the raw API text.
+    assert "response.status === 401" in body
+    assert "openAuthDialog" in body
+
+    token = _function(script, "authToken")
+    assert "getIdToken" in token
+    # A visitor never attaches a token.
+    assert "isAuthenticated()" in token
+
+
+def test_dashboard_restores_the_session_and_wires_every_auth_flow() -> None:
+    script = _compact(_javascript())
+
+    for symbol in (
+        "onAuthStateChanged",
+        "getIdToken",
+        "signInWithEmailAndPassword",
+        "createUserWithEmailAndPassword",
+        "sendPasswordResetEmail",
+        "sendEmailVerification",
+        "GithubAuthProvider",
+        "signInWithPopup",
+        "signInWithRedirect",
+        "signOut",
+        "getAuth",
+        "initializeApp",
+    ):
+        assert symbol in script, symbol
+
+
+def test_dashboard_registers_the_auth_state_observer_with_the_sdk_signature() -> None:
+    # ``startAuth`` documents the bug with an example call in a comment, so the
+    # comments must be stripped before matching or the contract would assert
+    # against the explanation instead of the call the code actually makes.
+    start = _compact(_without_comments(_function(_javascript(), "startAuth")))
+    match = re.search(r"([\w$.]+)\.onAuthStateChanged\(([^)]*)\)", start)
+    assert match, "startAuth must register an auth state observer"
+
+    receiver, arguments = match.group(1), match.group(2).strip()
+    if receiver == "authApi":
+        # Modular form: the instance comes first, the observer second.
+        assert arguments == "auth, handleAuthState", arguments
+    else:
+        # Instance form: the observer is the only argument. Passing the auth
+        # instance as the first argument (``auth.onAuthStateChanged(auth,
+        # handleAuthState)``) makes the SDK run ``auth.next.bind(auth)`` and
+        # throw synchronously, so the observer is never registered.
+        assert arguments == "handleAuthState", arguments
+
+
+def test_dashboard_translates_firebase_errors_to_portuguese() -> None:
+    script = _compact(_javascript())
+
+    body = _function(script, "authErrorMessage")
+    assert "AUTH_ERRORS[code]" in body
+
+    for code, message in (
+        ("auth/invalid-credential", "E-mail ou senha inválidos."),
+        ("auth/email-already-in-use", "já está cadastrado"),
+        ("auth/weak-password", "muito fraca"),
+        ("auth/too-many-requests", "Muitas tentativas"),
+        ("auth/popup-closed-by-user", "foi fechada antes"),
+        ("auth/network-request-failed", "Falha de rede"),
+    ):
+        assert code in script, code
+        assert message in script, code
+
+
+def test_dashboard_loads_the_auth_sdk_lazily_from_the_pinned_cdn() -> None:
+    html = _dashboard_html()
+    script = _compact(_javascript())
+
+    assert "https://www.gstatic.com/firebasejs/" in script
+    assert re.search(r'FIREBASE_SDK_VERSION = "\d+\.\d+\.\d+"', script)
+    # Loaded through a dynamic import, never as an external <script src>.
+    assert "import(FIREBASE_SDK_BASE" in script
+
+    for tag in [*_tags(html, "script"), *_tags(html, "link")]:
+        reference = tag.get("src") or tag.get("href") or ""
+        assert not re.match(r"^(https?:)?//", reference), reference
+
+
+def test_dashboard_auth_stays_guarded_when_unconfigured() -> None:
+    script = _compact(_javascript())
+
+    # The degraded path is driven by the guards below, not by the config values:
+    # ``authConfigured`` reads the public config at runtime, so the visitor flows
+    # keep working even if a deployment ships without a Firebase project.
+    configured = _function(script, "authConfigured")
+    assert "FIREBASE_CONFIG.apiKey" in configured
+    assert "FIREBASE_CONFIG.projectId" in configured
+
+    start = _function(script, "startAuth")
+    assert "authConfigured()" in start
+    # The degraded path explains itself instead of throwing.
+    assert "não está configurada neste ambiente" in start
+
+
+def test_dashboard_history_prompt_is_shown_to_visitors() -> None:
+    html = _dashboard_html()
+    script = _compact(_javascript())
+
+    prompt = [
+        tag for tag in _tags(html, "div") if "data-auth-history-prompt" in tag
+    ]
+    assert len(prompt) == 1
+    assert "hidden" in prompt[0], "the prompt starts hidden"
+
+    body = _function(script, "loadHistory")
+    assert "isAuthenticated()" in body
+    assert "showHistoryPrompt(true)" in body
+
+    # Visitors never fetch the owner-scoped history, so nothing leaks.
+    sync = _function(script, "synchronizeStatuses")
+    assert "isAuthenticated()" in sync

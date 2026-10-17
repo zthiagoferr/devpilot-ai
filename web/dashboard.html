@@ -33,6 +33,17 @@
       </nav>
 
       <div class="sidebar-bottom">
+        <div class="account-card" data-auth-account>
+          <span class="account-label">Conta</span>
+          <p class="account-status" data-auth-status data-status="anonymous" role="status" aria-live="polite">Visitante</p>
+          <p class="account-user" data-auth-user hidden></p>
+          <p class="account-hint" data-auth-hint>Entre para salvar e revisar o histórico das suas análises.</p>
+          <div class="account-actions">
+            <button class="button button-secondary button-small" type="button" data-auth-action="open-login" data-auth-when="anonymous">Entrar</button>
+            <button class="text-button" type="button" data-auth-action="open-register" data-auth-when="anonymous">Criar conta</button>
+            <button class="button button-secondary button-small" type="button" data-auth-action="logout" data-auth-when="authenticated" hidden>Sair</button>
+          </div>
+        </div>
         <div class="connection-card" aria-label="Status da conexão">
           <span class="status-dot" data-connection-dot data-status="connected" aria-hidden="true"></span>
           <div><span class="connection-label">Status do serviço</span><span class="connection-status" data-connection-status data-status="connected" role="status" aria-live="polite">Conectado</span></div>
@@ -103,12 +114,50 @@
           </div>
         </section>
 
-        <section id="history" class="view-section panel history-panel" aria-labelledby="history-title" data-view-section="history" hidden><div class="panel-heading"><div><p class="eyebrow">Registros do espaço</p><h1 id="history-title">Histórico de análises</h1><p class="panel-subtitle">Consulte execuções anteriores e revise seus achados.</p></div><button class="text-button" type="button" data-action="refresh-history">Atualizar histórico <span aria-hidden="true">↻</span></button></div><div class="table-wrap" data-history-table-wrap><table data-history-table><caption class="visually-hidden">Análises de código anteriores</caption><thead><tr><th scope="col">Projeto</th><th scope="col">Origem</th><th scope="col">Data</th><th scope="col">Pontuação</th><th scope="col">Ações</th></tr></thead><tbody data-history-list></tbody></table></div><div class="state state-empty" data-history-empty hidden><span class="empty-icon" aria-hidden="true">⌁</span><h2>Nenhuma análise ainda</h2><p>Execute sua primeira análise para ver resultados e histórico aqui.</p><a class="button button-primary" href="#new-analysis" data-nav="new-analysis">Iniciar uma análise</a></div><div class="state state-loading" data-history-loading hidden role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><p>Carregando histórico de análises…</p></div><div class="state state-error" data-history-error hidden role="alert"><strong>O histórico está indisponível</strong><p data-history-error-message>Tente atualizar a página.</p><button class="button button-secondary" type="button" data-action="refresh-history">Tentar novamente</button></div></section>
+        <section id="history" class="view-section panel history-panel" aria-labelledby="history-title" data-view-section="history" hidden><div class="panel-heading"><div><p class="eyebrow">Registros do espaço</p><h1 id="history-title">Histórico de análises</h1><p class="panel-subtitle">Consulte execuções anteriores e revise seus achados.</p></div><button class="text-button" type="button" data-action="refresh-history">Atualizar histórico <span aria-hidden="true">↻</span></button></div><div class="table-wrap" data-history-table-wrap><table data-history-table><caption class="visually-hidden">Análises de código anteriores</caption><thead><tr><th scope="col">Projeto</th><th scope="col">Origem</th><th scope="col">Data</th><th scope="col">Pontuação</th><th scope="col">Ações</th></tr></thead><tbody data-history-list></tbody></table></div><div class="state state-empty" data-history-empty hidden><span class="empty-icon" aria-hidden="true">⌁</span><h2>Nenhuma análise ainda</h2><p>Execute sua primeira análise para ver resultados e histórico aqui.</p><a class="button button-primary" href="#new-analysis" data-nav="new-analysis">Iniciar uma análise</a></div><div class="state state-loading" data-history-loading hidden role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><p>Carregando histórico de análises…</p></div><div class="state state-error" data-history-error hidden role="alert"><strong>O histórico está indisponível</strong><p data-history-error-message>Tente atualizar a página.</p><button class="button button-secondary" type="button" data-action="refresh-history">Tentar novamente</button></div><div class="state state-empty auth-prompt" data-auth-history-prompt hidden><span class="empty-icon" aria-hidden="true">◌</span><h2>Entre para ver seu histórico</h2><p>Suas análises ficam vinculadas à sua conta. Você continua podendo analisar código sem entrar.</p><button class="button button-primary" type="button" data-auth-action="open-login">Entrar na minha conta</button></div></section>
 
         <section id="analysis-detail" class="view-section panel detail-panel" aria-labelledby="detail-title" data-detail-section data-view-section="detail" hidden><div class="panel-heading"><div><p class="eyebrow">Detalhes da análise</p><h1 id="detail-title" data-detail-name>Resultados da análise</h1><p class="panel-subtitle" data-detail-meta></p></div><button class="button button-secondary" type="button" data-close-detail data-nav="history">Voltar ao histórico</button></div><div class="panel-body detail-body"><div class="detail-grid" aria-label="Metadados da análise"><div class="detail-field"><span class="field-meta">Pontuação</span><strong data-result-score data-score>—</strong></div><div class="detail-field"><span class="field-meta">Status</span><strong data-result-status>—</strong></div><div class="detail-field"><span class="field-meta">Origem</span><strong data-source-type>—</strong></div><div class="detail-field"><span class="field-meta">Criada em</span><strong data-created-at>—</strong></div><div class="detail-field"><span class="field-meta">ID da análise</span><strong data-analysis-id>—</strong></div></div><div class="result-summary" data-result-summary></div><section class="source-output" aria-labelledby="source-output-title"><div class="section-heading"><p class="eyebrow">Código enviado</p><h2 id="source-output-title">Código em revisão</h2></div><pre class="source-code-output"><code data-source-code></code></pre></section><div class="issues-list" data-issues-list aria-live="polite"></div></div></section>
       </main>
       <footer class="site-footer"><span>DevPilot AI</span><span aria-hidden="true">·</span><span>Análise de código para equipes cuidadosas</span></footer>
     </div>
   </div>
+
+  <dialog id="auth-dialog" class="auth-dialog" data-auth-dialog aria-labelledby="auth-title">
+    <div class="auth-dialog__panel">
+      <header class="auth-dialog__header">
+        <div>
+          <p class="eyebrow">Sua conta</p>
+          <h2 id="auth-title" data-auth-title>Entrar no DevPilot AI</h2>
+        </div>
+        <button class="text-button" type="button" data-auth-action="close" aria-label="Fechar a janela de acesso">Fechar</button>
+      </header>
+      <p class="auth-dialog__lead" data-auth-lead>Use seu e-mail e senha ou continue com o GitHub.</p>
+
+      <div class="auth-loading" data-auth-loading hidden role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span>Falando com o serviço de autenticação…</span></div>
+      <p class="auth-message" data-auth-message role="status" aria-live="polite" hidden></p>
+
+      <form class="auth-form" data-auth-form="login" novalidate>
+        <div class="field-group"><label for="auth-login-email">E-mail</label><input id="auth-login-email" name="email" type="email" required autocomplete="email" spellcheck="false" data-auth-email></div>
+        <div class="field-group"><label for="auth-login-password">Senha</label><input id="auth-login-password" name="password" type="password" required autocomplete="current-password" data-auth-password></div>
+        <div class="form-actions"><button class="text-button" type="button" data-auth-action="open-reset">Esqueci minha senha</button><button class="button button-primary" type="submit" data-auth-submit>Entrar</button></div>
+      </form>
+
+      <form class="auth-form" data-auth-form="register" hidden novalidate>
+        <div class="field-group"><label for="auth-register-email">E-mail</label><input id="auth-register-email" name="email" type="email" required autocomplete="email" spellcheck="false" data-auth-email></div>
+        <div class="field-group"><label for="auth-register-password">Senha <span class="optional">(mínimo de 6 caracteres)</span></label><input id="auth-register-password" name="password" type="password" required minlength="6" autocomplete="new-password" data-auth-password></div>
+        <div class="form-actions"><button class="text-button" type="button" data-auth-action="open-login">Já tenho conta</button><button class="button button-primary" type="submit" data-auth-submit>Criar conta</button></div>
+      </form>
+
+      <form class="auth-form" data-auth-form="reset" hidden novalidate>
+        <div class="field-group"><label for="auth-reset-email">E-mail da conta</label><input id="auth-reset-email" name="email" type="email" required autocomplete="email" spellcheck="false" data-auth-email></div>
+        <div class="form-actions"><button class="text-button" type="button" data-auth-action="open-login">Voltar para entrar</button><button class="button button-primary" type="submit" data-auth-submit>Enviar link</button></div>
+      </form>
+
+      <div class="auth-divider" data-auth-when="anonymous"><span>ou</span></div>
+      <button class="button button-secondary auth-github" type="button" data-auth-action="github" data-auth-when="anonymous">Continuar com GitHub</button>
+      <p class="auth-footnote" data-auth-verify hidden></p>
+      <button class="text-button" type="button" data-auth-action="verify-email" data-auth-when="authenticated" hidden>Reenviar e-mail de confirmação</button>
+    </div>
+  </dialog>
 </body>
 </html>

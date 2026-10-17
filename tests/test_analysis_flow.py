@@ -54,12 +54,23 @@ def analysis_client(tmp_path, monkeypatch):
     Base.metadata.create_all(sync_engine)
     sync_engine.dispose()
 
+    from app.api.deps import get_token_verifier
     from app.main import app
+    from tests.fake_auth import TEST_TOKEN, FakeTokenVerifier
+
+    # Reads are owner-scoped, so the whole flow runs as one verified user. The
+    # token comes from the fake verifier; the header travels through the real
+    # authentication dependency.
+    app.dependency_overrides[get_token_verifier] = lambda: FakeTokenVerifier()
 
     try:
-        with TestClient(app) as test_client:
+        with TestClient(
+            app,
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        ) as test_client:
             yield test_client, db_path
     finally:
+        app.dependency_overrides.pop(get_token_verifier, None)
         db_session.DATABASE_URL = original_module_url
         db_session._engine = None
         db_session._session_factory = None
@@ -320,18 +331,23 @@ async def test_repository_round_trip_with_real_session(tmp_path) -> None:
                 project_name="repo-project",
                 source_code="print('hello')\n",
                 result={"score": 42, "summary": "ok", "issues": [], "report": {}},
+                user_id="user-1",
             )
             await session.commit()
 
             assert created.id is not None
 
-            fetched = await repository.get_by_id(created.id)
+            fetched = await repository.get_by_id(created.id, user_id="user-1")
             assert fetched is not None
             assert fetched.project_name == "repo-project"
             assert fetched.result["score"] == 42
 
-            listed = await repository.list_analyses(limit=10)
+            listed = await repository.list_analyses(limit=10, user_id="user-1")
             assert [record.id for record in listed] == [created.id]
+
+            # Another user cannot read the record through either entry point.
+            assert await repository.get_by_id(created.id, user_id="user-2") is None
+            assert await repository.list_analyses(limit=10, user_id="user-2") == []
     finally:
         await engine.dispose()
 

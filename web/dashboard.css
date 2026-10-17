@@ -225,6 +225,35 @@ tbody tr:hover { background: var(--surface-hover); }
 .text-success { color: var(--mint); }
 .text-danger { color: var(--red); }
 
+/* Account control and the access dialog. Reuses the existing tokens so the
+   sign-in surface stays part of the same visual language. */
+.account-card { display: grid; gap: 4px; margin-bottom: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: rgb(17 23 28 / 72%); }
+.account-label { display: block; color: var(--text-subtle); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.account-status { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--text-muted); font-size: 13px; font-weight: 650; }
+.account-status[data-status="connected"] { color: var(--mint); }
+.account-user { margin: 0; overflow-wrap: anywhere; color: var(--text); font-size: 12px; font-weight: 650; }
+.account-hint { margin: 0; color: var(--text-subtle); font-size: 11px; }
+.account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+
+.auth-dialog { width: min(94vw, 440px); max-height: 90vh; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.auth-dialog::backdrop { background: rgb(4 7 10 / 72%); }
+.auth-dialog__panel { display: grid; gap: 14px; padding: 18px 20px 20px; }
+.auth-dialog__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.auth-dialog__header h2 { margin: 0; color: var(--text); font-size: 18px; font-weight: 780; letter-spacing: -.03em; }
+.auth-dialog__lead { margin: 0; color: var(--text-muted); font-size: 13px; }
+.auth-form { display: grid; gap: 2px; }
+.auth-form .field-group { margin-bottom: 12px; }
+.auth-form .form-actions { align-items: center; justify-content: space-between; }
+.auth-message { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-input); color: var(--text-muted); font-size: 12px; font-weight: 650; }
+.auth-message[data-status="error"] { border-color: rgb(242 143 139 / 30%); background: var(--red-soft); color: var(--red); }
+.auth-message[data-status="info"] { border-color: rgb(155 202 240 / 28%); background: var(--blue-soft); color: var(--blue); }
+.auth-loading { display: flex; align-items: center; gap: 9px; color: var(--text-muted); font-size: 12px; }
+.auth-divider { display: flex; align-items: center; gap: 10px; color: var(--text-subtle); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.auth-divider::before, .auth-divider::after { height: 1px; flex: 1 1 auto; background: var(--border); content: ""; }
+.auth-github { width: 100%; }
+.auth-footnote { margin: 0; color: var(--yellow); font-size: 12px; }
+.auth-prompt { min-height: 180px; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1120px) {
   :root { --sidebar-width: 228px; }
@@ -265,7 +294,7 @@ tbody tr:hover { background: var(--surface-hover); }
 @media print {
   :root { color-scheme: light; }
   body { background: #fff; color: #000; font-size: 10pt; }
-  .app-sidebar, .button, .button-primary, .button-secondary, .no-print { display: none !important; }
+  .app-sidebar, .button, .button-primary, .button-secondary, .no-print, .auth-dialog { display: none !important; }
   .app-shell { display: block; min-height: auto; }
   .page-content { width: 100%; max-width: none; padding: 0; }
   .panel, .metric-card { break-inside: avoid; border-color: #aaa; box-shadow: none; }
