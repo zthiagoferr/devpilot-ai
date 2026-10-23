@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@source "./app/**/*.ts";
+@source "./app/**/*.html";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    background-color: #080b12;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: #080b12;
+    color: #f4f7ff;
+    font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
