@@ -1,15 +1,21 @@
 import { InjectionToken } from '@angular/core';
 
-export type AuthTokenProvider = () => string | null;
+/**
+ * Returns the current bearer token, or `null` for an anonymous request.
+ *
+ * Firebase refreshes an ID token shortly before it expires, so the API client
+ * asks for the token immediately before every request instead of caching one.
+ */
+export type AuthTokenProvider = () => Promise<string | null>;
 
 /**
  * Extension point for the Firebase session introduced in F5.
  *
- * The API client asks for the current bearer token immediately before every
- * request; until the auth feature provides a real token, this returns `null`
- * and anonymous submissions keep working.
+ * Until the auth feature provides a real token, this resolves to `null` and
+ * anonymous submissions keep working. `F5` overrides it in `app.config.ts`
+ * with the `AuthService` token getter.
  */
 export const AUTH_TOKEN_PROVIDER = new InjectionToken<AuthTokenProvider>('AUTH_TOKEN_PROVIDER', {
   providedIn: 'root',
-  factory: () => () => null,
+  factory: () => async () => null,
 });

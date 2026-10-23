@@ -2,8 +2,8 @@
   <header class="flex flex-col gap-3">
     <h1 class="text-display font-semibold tracking-[-0.02em] text-text">Nova análise</h1>
     <p class="max-w-[64ch] text-body text-muted">
-      Cole o código para receber score, problemas priorizados e um resumo dos agentes. A análise
-      manual não exige conta.
+      Cole o código ou selecione um arquivo de um repositório GitHub para receber score, problemas
+      priorizados e um resumo dos agentes. A análise não exige conta.
     </p>
   </header>
 
@@ -58,11 +58,7 @@
               </div>
             </form>
           } @else {
-            <app-empty-state
-              icon="gitBranch"
-              title="Análise de repositório"
-              description="A conexão com repositórios do GitHub estará disponível em breve. Por enquanto, use a aba Colar código."
-            />
+            <app-repository-analysis (analyzed)="handleRepositoryResult($event)" />
           }
         </app-tabs>
       </app-card>

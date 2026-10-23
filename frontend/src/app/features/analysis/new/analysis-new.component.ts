@@ -10,12 +10,13 @@ import {
 import { Router } from '@angular/router';
 
 import { ApiClient, isAbortError } from '../../../core/api/api-client';
+import { analysisSuccessMessage } from '../../../core/api/analysis-summary';
 import { isApiError } from '../../../core/api/api-error.mapper';
 import { Analysis } from '../../../core/api/api.types';
+import { RepositoryStore } from '../../../core/repositories/repository-store';
 import { BadgeComponent } from '../../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
 import { CardComponent } from '../../../shared/components/card/card.component';
-import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import {
   InlineStatusComponent,
@@ -25,6 +26,7 @@ import { InputComponent } from '../../../shared/components/input/input.component
 import { ScoreRingComponent } from '../../../shared/components/score-ring/score-ring.component';
 import { TabItem, TabsComponent } from '../../../shared/components/tabs/tabs.component';
 import { TextareaComponent } from '../../../shared/components/textarea/textarea.component';
+import { RepositoryAnalysisComponent } from './repository-analysis.component';
 
 const MAX_SOURCE_BYTES = 1_000_000;
 
@@ -35,7 +37,7 @@ interface FormStatus {
 
 const TABS: readonly TabItem[] = [
   { id: 'paste', label: 'Colar código' },
-  { id: 'repository', label: 'Repositório' },
+  { id: 'repository', label: 'Repositório GitHub' },
 ];
 
 @Component({
@@ -45,16 +47,17 @@ const TABS: readonly TabItem[] = [
     BadgeComponent,
     ButtonComponent,
     CardComponent,
-    EmptyStateComponent,
     IconComponent,
     InlineStatusComponent,
     InputComponent,
     ScoreRingComponent,
     TabsComponent,
     TextareaComponent,
+    RepositoryAnalysisComponent,
   ],
   templateUrl: './analysis-new.component.html',
   styleUrl: './analysis-new.component.css',
+  providers: [RepositoryStore],
 })
 export class AnalysisNewComponent {
   private readonly api = inject(ApiClient);
@@ -172,7 +175,7 @@ export class AnalysisNewComponent {
       this.result.set(analysis);
       this.status.set({
         tone: analysis.status === 'completed' ? 'success' : 'warning',
-        message: this.successMessage(analysis),
+        message: analysisSuccessMessage(analysis),
       });
     } catch (error) {
       if (isAbortError(error)) {
@@ -219,20 +222,8 @@ export class AnalysisNewComponent {
     void this.router.navigate(['/history', id]);
   }
 
-  private successMessage(analysis: Analysis): string {
-    const score = analysis.result?.score;
-    const issueCount = analysis.result?.issues?.length ?? 0;
-    const parts = [analysis.status === 'completed' ? 'Análise concluída.' : 'Análise finalizada.'];
-
-    if (typeof score === 'number' && Number.isFinite(score)) {
-      parts.push(`Score ${score}/100.`);
-    }
-    parts.push(
-      issueCount === 0
-        ? 'Nenhum problema encontrado.'
-        : `${issueCount} ${issueCount === 1 ? 'problema encontrado' : 'problemas encontrados'}.`,
-    );
-    return parts.join(' ');
+  protected handleRepositoryResult(analysis: Analysis): void {
+    this.result.set(analysis);
   }
 
   private isVisible(

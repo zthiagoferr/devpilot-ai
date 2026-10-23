@@ -25,6 +25,7 @@ export interface SelectOption {
         [id]="controlId()"
         [name]="name()"
         [value]="value()"
+        [disabled]="disabled()"
         [attr.aria-invalid]="error() ? 'true' : null"
         [attr.aria-describedby]="describedBy()"
         [attr.aria-required]="required() ? 'true' : null"
@@ -51,6 +52,7 @@ export class SelectComponent {
   readonly error = input('');
   readonly required = input(false);
   readonly placeholder = input('');
+  readonly disabled = input(false);
 
   readonly blurred = output<void>();
 

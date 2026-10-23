@@ -8,7 +8,13 @@ import {
   mapNetworkError,
   mapUnavailableError,
 } from './api-error.mapper';
-import { Analysis, CreateAnalysisRequest, OrchestratorStatus } from './api.types';
+import {
+  Analysis,
+  CreateAnalysisRequest,
+  OrchestratorStatus,
+  RepositoryLoad,
+  RepositoryLoadRequest,
+} from './api.types';
 
 type HttpMethod = 'GET' | 'POST';
 
@@ -49,6 +55,18 @@ export class ApiClient {
     return this.request<Analysis[]>('GET', `/analyses?limit=${limit}`, undefined, signal);
   }
 
+  loadRepository(
+    repositoryUrl: string,
+    branch?: string | null,
+    signal?: AbortSignal,
+  ): Promise<RepositoryLoad> {
+    const payload: RepositoryLoadRequest = {
+      repository_url: repositoryUrl,
+      ...(branch ? { branch } : {}),
+    };
+    return this.request<RepositoryLoad>('POST', '/repositories/load', payload, signal);
+  }
+
   private async request<T>(
     method: HttpMethod,
     path: string,
@@ -64,7 +82,7 @@ export class ApiClient {
       headers.set('Content-Type', 'application/json');
     }
 
-    const token = this.authToken();
+    const token = await this.authToken();
     if (token !== null && token !== '') {
       headers.set('Authorization', `Bearer ${token}`);
     }

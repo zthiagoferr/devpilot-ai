@@ -31,6 +31,26 @@ export interface CreateAnalysisRequest {
   readonly project_name: string;
   readonly source_code: string;
   readonly repository_url?: string | null;
+  readonly branch?: string | null;
+  readonly file_path?: string | null;
+}
+
+/** One analyzable file returned by `POST /repositories/load`. */
+export interface RepositoryFile {
+  readonly path: string;
+  readonly size?: number | null;
+  readonly source_code?: string | null;
+}
+
+export interface RepositoryLoadRequest {
+  readonly repository_url: string;
+  readonly branch?: string | null;
+}
+
+export interface RepositoryLoad {
+  readonly files: readonly RepositoryFile[];
+  readonly truncated: boolean;
+  readonly message?: string | null;
 }
 
 export interface OrchestratorStatus {
