@@ -33,7 +33,10 @@ export interface SelectOption {
         (blur)="blurred.emit()"
       >
         @if (placeholder()) {
-          <option value="" disabled>{{ placeholder() }}</option>
+          <!-- The placeholder stays selectable while no value is chosen; a
+               disabled placeholder would make the browser visually select the
+               first real option even though the model is still empty. -->
+          <option value="" [disabled]="value() !== ''">{{ placeholder() }}</option>
         }
         @for (option of options(); track option.value) {
           <option [value]="option.value">{{ option.label }}</option>

@@ -103,6 +103,32 @@ describe('RepositoryAnalysisComponent', () => {
     });
   });
 
+  it('keeps the placeholder selected until the user picks a file', async () => {
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const repository = element.querySelectorAll<HTMLInputElement>('input')[1];
+    repository!.value = 'pypa/sampleproject';
+    repository!.dispatchEvent(new Event('input', { bubbles: true }));
+
+    const loadButton = Array.from(element.querySelectorAll('button')).find((button) =>
+      (button.textContent ?? '').includes('Carregar arquivos'),
+    );
+    loadButton?.click();
+    await settle(fixture);
+
+    const select = element.querySelector<HTMLSelectElement>('select');
+    expect(select?.value).toBe('');
+
+    const submit = element.querySelector<HTMLButtonElement>('button[type="submit"]');
+    submit?.click();
+    await settle(fixture);
+
+    expect(createAnalysis).not.toHaveBeenCalled();
+    expect(element.textContent).toContain('Selecione um arquivo do repositório.');
+  });
+
   it('shows the empty-repository message and keeps the select disabled', async () => {
     loadRepository.mockResolvedValue({
       files: [],
