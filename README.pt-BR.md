@@ -22,6 +22,7 @@ DevPilot AI é uma aplicação para análise automatizada de projetos de softwar
 - [Instalação](#instalação)
 - [Configuração](#configuração)
 - [Execução local](#execução-local)
+- [Desenvolvimento do frontend](#desenvolvimento-do-frontend)
 - [Docker e Compose](#docker-e-compose)
 - [Health e readiness](#health-e-readiness)
 - [Segurança](#segurança)
@@ -212,6 +213,18 @@ uvicorn app.main:app --reload
 ```
 
 A API e o dashboard ficarão disponíveis em `http://127.0.0.1:8000`. A documentação está em `/docs` e `/redoc`.
+
+## Desenvolvimento do frontend
+
+A SPA Angular fica em `frontend/` (Node 20.19+, 22.12+ ou 24+). Com a API local em `http://localhost:8000`:
+
+```bash
+cd frontend
+npm ci
+npm start        # ng serve em http://localhost:4200
+```
+
+O build de produção (`npm run build:prod`) gera `frontend/dist/`. A configuração de runtime é gerada por `npm run config`; consulte o [DEPLOY.md](DEPLOY.md) para o GitHub Pages. O dashboard legado em `/dashboard` continua disponível como fallback até o cutover.
 
 ## Docker e Compose
 
