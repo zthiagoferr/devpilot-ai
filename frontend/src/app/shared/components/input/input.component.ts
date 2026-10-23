@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, input, model, output } fr
 import { createFieldId } from '../field/field-id';
 import { FieldComponent } from '../field/field.component';
 
-export type InputType = 'text' | 'url' | 'search' | 'email';
+export type InputType = 'text' | 'url' | 'search' | 'email' | 'password';
 
 @Component({
   selector: 'app-input',

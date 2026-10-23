@@ -45,16 +45,44 @@
     <div class="sidebar__footer">
       <section class="account" aria-label="Conta">
         <div class="account__identity">
-          <span class="account__avatar" aria-hidden="true">V</span>
+          <span class="account__avatar" aria-hidden="true">{{ account.initials() }}</span>
           <div class="account__meta">
-            <p class="account__name">Visitante</p>
-            <p class="account__detail">Sem sessão ativa</p>
+            @if (account.isAuthenticated()) {
+              <p class="account__name">{{ account.displayName() }}</p>
+              <p class="account__detail">{{ account.email() }}</p>
+            } @else {
+              <p class="account__name">Visitante</p>
+              <p class="account__detail">Sem sessão ativa</p>
+            }
           </div>
         </div>
-        <app-button variant="secondary" size="sm" [fullWidth]="true" (click)="auth.open()">
-          <app-icon name="lock" [size]="14" />
-          Entrar
-        </app-button>
+
+        @if (account.isAuthenticated()) {
+          @if (!account.emailVerified()) {
+            <button type="button" class="account__verify" (click)="prompts.open()">
+              Confirme seu e-mail
+            </button>
+          }
+          <app-button
+            variant="ghost"
+            size="sm"
+            [fullWidth]="true"
+            [loading]="signingOut()"
+            (click)="signOut()"
+          >
+            <app-icon name="xCircle" [size]="14" />
+            Sair
+          </app-button>
+        } @else {
+          <app-button variant="secondary" size="sm" [fullWidth]="true" (click)="prompts.open()">
+            <app-icon name="lock" [size]="14" />
+            Entrar
+          </app-button>
+        }
+
+        @if (accountError()) {
+          <p class="account__error" role="alert">{{ accountError() }}</p>
+        }
       </section>
 
       <app-service-status />
@@ -96,4 +124,4 @@
   </div>
 </div>
 
-<app-login-prompt />
+<app-auth-dialog />

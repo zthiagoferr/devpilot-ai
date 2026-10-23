@@ -6,9 +6,12 @@
  * environments.
  */
 
+import type { FirebaseRuntimeConfig } from '../auth/firebase-config';
+
 export interface RawAppConfig {
   apiBaseUrl?: string;
   basePath?: string;
+  firebase?: FirebaseRuntimeConfig;
 }
 
 export interface AppConfig {
@@ -18,6 +21,8 @@ export interface AppConfig {
   readonly basePath: string;
   /** True when production runs without an API origin configured. */
   readonly apiUnavailable: boolean;
+  /** Optional Firebase web override; defaults live in `firebase-config.ts`. */
+  readonly firebase?: FirebaseRuntimeConfig;
 }
 
 declare global {
@@ -56,15 +61,16 @@ export function readRuntimeConfig(win: Window | undefined = globalThis.window): 
   const raw = win?.DevPilotConfig ?? {};
   const configured = trimTrailingSlashes((raw.apiBaseUrl ?? '').trim());
   const basePath = normalizeBasePath(raw.basePath);
+  const firebase = raw.firebase ?? {};
 
   if (configured !== '') {
-    return { apiBaseUrl: configured, basePath, apiUnavailable: false };
+    return { apiBaseUrl: configured, basePath, apiUnavailable: false, firebase };
   }
 
   const hostname = win?.location?.hostname ?? '';
   if (hostname !== '' && isLoopback(hostname)) {
-    return { apiBaseUrl: LOCAL_API_FALLBACK, basePath, apiUnavailable: false };
+    return { apiBaseUrl: LOCAL_API_FALLBACK, basePath, apiUnavailable: false, firebase };
   }
 
-  return { apiBaseUrl: '', basePath, apiUnavailable: true };
+  return { apiBaseUrl: '', basePath, apiUnavailable: true, firebase };
 }

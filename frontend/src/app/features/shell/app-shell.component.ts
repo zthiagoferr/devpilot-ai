@@ -14,9 +14,10 @@ import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router
 import { filter, map } from 'rxjs';
 
 import { LoginPromptService } from '../../core/auth/login-prompt.service';
+import { AuthService } from '../../core/auth/auth.service';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { IconComponent, IconName } from '../../shared/components/icon/icon.component';
-import { LoginPromptComponent } from '../auth/login-prompt.component';
+import { AuthDialogComponent } from '../auth/auth-dialog.component';
 import { ServiceStatusComponent } from './service-status.component';
 
 interface NavItem {
@@ -40,7 +41,7 @@ const NAV_ITEMS: readonly NavItem[] = [
     RouterLink,
     ButtonComponent,
     IconComponent,
-    LoginPromptComponent,
+    AuthDialogComponent,
     ServiceStatusComponent,
   ],
   templateUrl: './app-shell.component.html',
@@ -50,12 +51,15 @@ const NAV_ITEMS: readonly NavItem[] = [
   },
 })
 export class AppShellComponent {
-  protected readonly auth = inject(LoginPromptService);
+  protected readonly prompts = inject(LoginPromptService);
+  protected readonly account = inject(AuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly navItems = NAV_ITEMS;
   protected readonly drawerOpen = signal(false);
+  protected readonly signingOut = signal(false);
+  protected readonly accountError = signal('');
 
   private readonly currentUrl = toSignal(
     this.router.events.pipe(
@@ -130,6 +134,19 @@ export class AppShellComponent {
   protected handleEscape(): void {
     if (this.drawerOpen()) {
       this.closeDrawer(true);
+    }
+  }
+
+  protected async signOut(): Promise<void> {
+    if (this.signingOut()) {
+      return;
+    }
+    this.signingOut.set(true);
+    this.accountError.set('');
+    const result = await this.account.signOut();
+    this.signingOut.set(false);
+    if (!result.ok) {
+      this.accountError.set(result.message);
     }
   }
 }

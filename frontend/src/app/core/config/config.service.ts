@@ -15,5 +15,6 @@ export class ConfigService {
   readonly apiBaseUrl = this.runtime.apiBaseUrl;
   readonly basePath = this.runtime.basePath;
   readonly apiUnavailable = this.runtime.apiUnavailable;
+  readonly firebase = this.runtime.firebase ?? {};
   readonly hasApi = computed(() => this.apiBaseUrl !== '');
 }
