@@ -1,23 +1,40 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+
 import { App } from './app';
+import { APP_CONFIG } from './core/config/config.service';
 
 describe('App', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
+      providers: [
+        provideRouter([]),
+        {
+          provide: APP_CONFIG,
+          useValue: { apiBaseUrl: '', basePath: '', apiUnavailable: true },
+        },
+      ],
     }).compileComponents();
   });
 
-  it('should create the app', () => {
-    const fixture = TestBed.createComponent(App);
-    const app = fixture.componentInstance;
-    expect(app).toBeTruthy();
-  });
-
-  it('should render title', async () => {
+  it('renders the application shell with a skip link', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, devpilot-web');
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('app-shell')).not.toBeNull();
+    expect(element.querySelector('.skip-link')?.getAttribute('href')).toBe('#main-content');
+  });
+
+  it('exposes the primary navigation with aria-current on the active route', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const links = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLAnchorElement>(
+      '.nav__link',
+    );
+    expect(links.length).toBe(3);
+    expect(links[0]?.getAttribute('aria-current')).toBe('page');
   });
 });

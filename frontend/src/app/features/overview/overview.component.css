@@ -1,0 +1,27 @@
+.cta-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-card::before {
+  content: "";
+  position: absolute;
+  inset-block-start: -40%;
+  inset-inline-start: -20%;
+  width: 70%;
+  height: 160%;
+  background: radial-gradient(circle, rgb(37 99 235 / 0.16) 0%, transparent 68%);
+  pointer-events: none;
+}
+
+.cta-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in oklab, var(--color-accent) 38%, transparent);
+  border-radius: var(--radius-md);
+  background-color: color-mix(in oklab, var(--color-primary) 18%, var(--color-surface));
+  color: var(--color-accent);
+}

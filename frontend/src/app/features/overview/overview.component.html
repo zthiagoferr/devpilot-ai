@@ -1,0 +1,75 @@
+<div class="flex flex-col gap-8">
+  <header class="flex flex-col gap-3">
+    <h1 class="text-display font-semibold tracking-[-0.02em] text-text">Visão geral</h1>
+    <p class="max-w-[64ch] text-body text-muted">
+      Acompanhe a saúde do código e o resultado dos agentes em um só painel. Comece colando um
+      trecho ou conecte um repositório nas próximas etapas.
+    </p>
+  </header>
+
+  <section aria-label="Indicadores" class="grid gap-4 sm:grid-cols-3">
+    @for (stat of stats; track stat.label) {
+      <app-card padding="sm">
+        <div class="flex flex-col gap-2">
+          <p class="text-caption text-muted">{{ stat.label }}</p>
+          <p class="mono-metric text-metric text-text">—</p>
+          <p class="text-caption text-muted">{{ stat.hint }}</p>
+        </div>
+      </app-card>
+    }
+  </section>
+
+  <div class="grid gap-6 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+    <div class="cta-card">
+      <app-card padding="lg">
+        <div class="flex flex-col gap-5">
+          <span class="cta-card__icon" aria-hidden="true">
+            <app-icon name="code" [size]="22" [strokeWidth]="1.75" />
+          </span>
+
+          <div class="flex flex-col gap-2">
+            <h2 class="text-title font-semibold text-text">Analise um trecho de código</h2>
+            <p class="max-w-[56ch] text-body-sm text-muted">
+              Cole um arquivo Python e receba um score, os problemas priorizados e um resumo dos
+              agentes — sem sair da página.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <app-button (click)="startAnalysis()">
+              <app-icon name="plus" [size]="16" />
+              Analisar código
+            </app-button>
+            <app-button variant="ghost" (click)="openHistory()">
+              <app-icon name="history" [size]="16" />
+              Ver histórico
+            </app-button>
+          </div>
+        </div>
+      </app-card>
+    </div>
+
+    <app-card padding="lg">
+      <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-heading font-semibold text-text">Como a análise funciona</h2>
+          <p class="text-caption text-muted">Três etapas, um único envio.</p>
+        </div>
+
+        <ol class="flex flex-col gap-4">
+          @for (step of steps; track step.title; let index = $index) {
+            <li class="flex items-start gap-3">
+              <span class="mono-metric flex h-7 w-7 flex-none items-center justify-center rounded-sm border border-border bg-surface-raised text-caption text-accent">
+                {{ index + 1 }}
+              </span>
+              <div class="flex flex-col gap-1">
+                <p class="text-body-sm font-medium text-text">{{ step.title }}</p>
+                <p class="text-caption text-muted">{{ step.description }}</p>
+              </div>
+            </li>
+          }
+        </ol>
+      </div>
+    </app-card>
+  </div>
+</div>
