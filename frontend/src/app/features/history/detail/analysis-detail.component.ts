@@ -12,6 +12,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ApiClient, isAbortError } from '../../../core/api/api-client';
 import { ApiError, isApiError } from '../../../core/api/api-error.mapper';
 import { Analysis, AnalysisIssue } from '../../../core/api/api.types';
+import { AuthService } from '../../../core/auth/auth.service';
 import { LoginPromptService } from '../../../core/auth/login-prompt.service';
 import { BadgeComponent, BadgeTone } from '../../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
@@ -91,6 +92,7 @@ export class AnalysisDetailComponent {
 
   private readonly api = inject(ApiClient);
   private readonly router = inject(Router);
+  private readonly account = inject(AuthService);
   protected readonly auth = inject(LoginPromptService);
 
   protected readonly state = signal<LoadState>('loading');
@@ -248,6 +250,15 @@ export class AnalysisDetailComponent {
       if (isApiError(error)) {
         this.error.set(error);
         this.state.set(error.kind === 'unauthorized' ? 'unauthorized' : 'error');
+        if (error.kind === 'unauthorized' && this.account.isAuthenticated()) {
+          // The token was rejected: drop the local session and ask for a new
+          // login instead of leaving the UI in a half-signed-in state.
+          this.account.expireSession();
+          this.auth.open({
+            mode: 'login',
+            message: 'Sua sessão expirou. Entre novamente para continuar.',
+          });
+        }
       } else {
         this.error.set(
           new ApiError('unknown', 'Falha inesperada ao carregar a análise. Tente novamente.'),
