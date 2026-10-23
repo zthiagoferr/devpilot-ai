@@ -1,0 +1,145 @@
+@switch (state()) {
+  @case ('loading') {
+    <div class="flex flex-col gap-6" aria-busy="true">
+      <app-skeleton variant="text" [lines]="2" label="Carregando análise" />
+      <div class="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+        <app-skeleton variant="block" [lines]="1" label="" />
+        <app-skeleton variant="block" [lines]="1" label="" />
+      </div>
+      <app-skeleton variant="block" [lines]="2" label="" />
+    </div>
+  }
+
+  @case ('unauthorized') {
+    <app-error-state
+      title="Faça login para ver o histórico"
+      description="Esta análise é privada e só pode ser aberta pela conta que a criou. Entre para consultar o relatório completo."
+      [showRetry]="false"
+    >
+      <app-button (click)="openLogin()">
+        <app-icon name="lock" [size]="15" />
+        Entrar
+      </app-button>
+      <app-button variant="ghost" (click)="goToNewAnalysis()">Analisar sem conta</app-button>
+    </app-error-state>
+  }
+
+  @case ('error') {
+    <app-error-state
+      [title]="errorTitle()"
+      [description]="errorDescription()"
+      [showRetry]="canRetry()"
+      (retry)="retry()"
+    >
+      <app-button variant="secondary" (click)="goToNewAnalysis()">Nova análise</app-button>
+    </app-error-state>
+  }
+
+  @case ('ready') {
+    @if (analysis(); as item) {
+      <article class="flex flex-col gap-6">
+        <header class="flex flex-col gap-4">
+          <a
+            routerLink="/history"
+            class="inline-flex w-fit items-center gap-1.5 text-caption text-muted transition-colors duration-150 hover:text-text"
+          >
+            <app-icon name="chevronRight" [size]="14" class="rotate-180" />
+            Histórico
+          </a>
+
+          <div class="flex flex-col gap-3">
+            <h1 class="text-display font-semibold tracking-[-0.02em] text-text break-words">
+              {{ item.project_name }}
+            </h1>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <app-badge [tone]="status().tone">{{ status().label }}</app-badge>
+              <app-badge tone="info">{{ taskLabel() }}</app-badge>
+              <app-badge tone="neutral">{{ originLabel() }}</app-badge>
+              <span class="text-caption text-muted">{{ createdAt() }}</span>
+            </div>
+
+            @if (repositoryUrl(); as url) {
+              <p class="text-caption text-muted break-all">
+                Origem:
+                <a [href]="url" target="_blank" rel="noopener noreferrer" class="text-accent">
+                  {{ url }}
+                </a>
+              </p>
+            }
+          </div>
+        </header>
+
+        <div class="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+          <app-card padding="lg">
+            <div class="flex flex-col items-center gap-3">
+              <app-score-ring [score]="score()" [size]="132" caption="score geral" />
+              <p class="text-center text-caption text-muted">{{ scoreHint() }}</p>
+            </div>
+          </app-card>
+
+          <app-card padding="lg">
+            <div class="flex flex-col gap-3">
+              <h2 class="text-heading font-semibold text-text">Resumo</h2>
+              <p class="text-body-sm leading-relaxed text-muted">{{ summary() }}</p>
+            </div>
+          </app-card>
+        </div>
+
+        <app-card padding="lg">
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 class="text-heading font-semibold text-text">Problemas</h2>
+              @if (issues().length === 0) {
+                <app-badge tone="success">Nenhum problema</app-badge>
+              } @else {
+                <app-badge tone="warning">
+                  {{ issues().length }}
+                  {{ issues().length === 1 ? 'problema' : 'problemas' }}
+                </app-badge>
+              }
+            </div>
+
+            @if (sortedIssues().length === 0) {
+              <p class="flex items-center gap-2 text-body-sm text-success">
+                <app-icon name="check" [size]="16" [strokeWidth]="2" />
+                Nenhum problema encontrado pelos agentes.
+              </p>
+            } @else {
+              <ul class="divide-y divide-border-soft">
+                @for (issue of sortedIssues(); track $index) {
+                  <li class="flex items-start gap-3 py-4 first:pt-0 last:pb-0">
+                    <app-badge [tone]="severityTone(issue)">{{ severityLabel(issue) }}</app-badge>
+
+                    <div class="flex min-w-0 flex-col gap-1">
+                      <p class="text-body-sm whitespace-pre-line break-words text-text">
+                        {{ issue.message }}
+                      </p>
+                      @if (issue.line !== undefined && issue.line !== null) {
+                        <p class="mono-metric text-caption text-muted">Linha {{ issue.line }}</p>
+                      }
+                    </div>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </app-card>
+
+        @defer (on viewport) {
+          <app-card padding="lg">
+            <div class="flex flex-col gap-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="text-heading font-semibold text-text">Código-fonte</h2>
+                <span class="text-caption text-muted">Somente leitura</span>
+              </div>
+              <app-source-viewer [source]="item.source_code" />
+            </div>
+          </app-card>
+        } @placeholder {
+          <app-skeleton variant="block" [lines]="2" label="Preparando o código-fonte" />
+        }
+      </article>
+    }
+  }
+}

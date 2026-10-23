@@ -16,8 +16,8 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
       (closed)="auth.close()"
     >
       <p>
-        A autenticação com Firebase será ativada na próxima etapa do painel. Enquanto isso, você
-        pode criar análises manuais sem conta — apenas o detalhe salvo exige login.
+        O acesso à conta estará disponível em breve. Enquanto isso, você pode criar análises manuais
+        sem conta — apenas o detalhe salvo exige login.
       </p>
 
       <app-button modalFooter variant="secondary" (click)="auth.close()">Entendi</app-button>

@@ -75,7 +75,7 @@ export type ButtonSize = 'sm' | 'md';
 
     .button--secondary {
       background-color: var(--color-surface-raised);
-      border-color: var(--color-border);
+      border-color: color-mix(in oklab, var(--color-border) 40%, var(--color-muted));
       color: var(--color-text);
     }
 

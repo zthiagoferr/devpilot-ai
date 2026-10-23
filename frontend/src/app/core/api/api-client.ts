@@ -8,13 +8,19 @@ import {
   mapNetworkError,
   mapUnavailableError,
 } from './api-error.mapper';
-import {
-  Analysis,
-  CreateAnalysisRequest,
-  OrchestratorStatus,
-} from './api.types';
+import { Analysis, CreateAnalysisRequest, OrchestratorStatus } from './api.types';
 
 type HttpMethod = 'GET' | 'POST';
+
+export function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      (error as { name?: unknown }).name === 'AbortError')
+  );
+}
 
 /**
  * Thin typed wrapper over `fetch`.
@@ -36,12 +42,7 @@ export class ApiClient {
   }
 
   getAnalysis(id: string, signal?: AbortSignal): Promise<Analysis> {
-    return this.request<Analysis>(
-      'GET',
-      `/analyses/${encodeURIComponent(id)}`,
-      undefined,
-      signal,
-    );
+    return this.request<Analysis>('GET', `/analyses/${encodeURIComponent(id)}`, undefined, signal);
   }
 
   listAnalyses(limit = 20, signal?: AbortSignal): Promise<Analysis[]> {
@@ -78,7 +79,7 @@ export class ApiClient {
         cache: 'no-store',
       });
     } catch (error) {
-      if (this.isAbortError(error)) {
+      if (isAbortError(error)) {
         throw error;
       }
       throw mapNetworkError(error);
@@ -115,15 +116,5 @@ export class ApiClient {
       }
       throw mapInvalidResponseError(error);
     }
-  }
-
-  private isAbortError(error: unknown): boolean {
-    return (
-      (error instanceof DOMException && error.name === 'AbortError') ||
-      (typeof error === 'object' &&
-        error !== null &&
-        'name' in error &&
-        (error as { name?: unknown }).name === 'AbortError')
-    );
   }
 }

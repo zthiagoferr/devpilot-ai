@@ -1,10 +1,6 @@
 import { registerLocaleData } from '@angular/common';
 import localePt from '@angular/common/locales/pt';
-import {
-  ApplicationConfig,
-  LOCALE_ID,
-  provideBrowserGlobalErrorListeners,
-} from '@angular/core';
+import { ApplicationConfig, LOCALE_ID, provideBrowserGlobalErrorListeners } from '@angular/core';
 import {
   provideRouter,
   withComponentInputBinding,

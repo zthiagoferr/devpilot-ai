@@ -1,59 +1,58 @@
-# DevpilotWeb
+# DevPilot AI — frontend
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.28.
+SPA em Angular 21 (standalone, zoneless, signals) + TailwindCSS 4, com tema escuro
+preto/azul elétrico. Consome a API FastAPI do repositório.
 
-## Development server
+## Requisitos
 
-To start a local development server, run:
+- Node.js 20.19+, 22.12+ ou 24+ (verificado com Node 26)
+- API local em `http://localhost:8000`
 
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## Desenvolvimento
 
 ```bash
-ng generate component component-name
+npm ci
+npm start          # http://localhost:4200
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+A API precisa liberar a origem do dev server em `FRONTEND_ORIGINS`
+(`http://localhost:4200`).
+
+## Configuração de runtime
+
+`public/config.js` é carregado antes do bundle e define `window.DevPilotConfig`.
+Em loopback, sem configuração, o cliente usa `http://localhost:8000`.
 
 ```bash
-ng generate --help
+npm run config -- --api-base-url=https://api.example.com --base-path=/devpilot
 ```
 
-## Building
+Em produção sem `apiBaseUrl`, a UI degrada de forma explícita (`apiUnavailable`)
+em vez de chamar a própria origem estática.
 
-To build the project run:
+## Scripts
 
-```bash
-ng build
+| Comando              | Descrição                     |
+| -------------------- | ----------------------------- |
+| `npm start`          | Dev server em `:4200`         |
+| `npm run build:prod` | Build de produção em `dist/`  |
+| `npm run test:ci`    | Testes Vitest, execução única |
+| `npm run config`     | Gera `public/config.js`       |
+
+## Estrutura
+
+```
+src/app/
+├── core/          # config de runtime, ApiClient, erros, auth placeholder
+├── shared/        # design system (button, field, card, modal, tabs, ...)
+└── features/      # shell, overview, analysis, history
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+Rotas usam `withHashLocation()` para funcionar em hospedagem estática. Links
+antigos do painel (`#new-analysis`, `#analysis-detail`) são redirecionados.
 
-## Running unit tests
+## Acessibilidade
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Foco visível (outline `#60A5FA` + glow), alvos de 44px, skip link, drawer com
+`inert`, live regions nos estados e `prefers-reduced-motion` respeitado.
+`#2563EB` é usado apenas como preenchimento; texto e foco usam `#60A5FA`.

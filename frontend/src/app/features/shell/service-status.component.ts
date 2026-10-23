@@ -64,22 +64,22 @@ const LABELS: Readonly<Record<ServiceState, string>> = {
         box-shadow 150ms var(--ease-ui);
     }
 
-    .service[data-state="online"] .service__dot {
+    .service[data-state='online'] .service__dot {
       background-color: var(--color-success);
       box-shadow: 0 0 10px 1px rgb(52 211 153 / 0.5);
     }
 
-    .service[data-state="degraded"] .service__dot {
+    .service[data-state='degraded'] .service__dot {
       background-color: var(--color-warning);
       box-shadow: 0 0 10px 1px rgb(251 191 36 / 0.45);
     }
 
-    .service[data-state="offline"] .service__dot {
+    .service[data-state='offline'] .service__dot {
       background-color: var(--color-danger);
       box-shadow: 0 0 10px 1px rgb(248 113 113 / 0.45);
     }
 
-    .service[data-state="checking"] .service__dot {
+    .service[data-state='checking'] .service__dot {
       animation: breathe 1.4s var(--ease-ui) infinite;
     }
 
@@ -96,7 +96,7 @@ const LABELS: Readonly<Record<ServiceState, string>> = {
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .service[data-state="checking"] .service__dot {
+      .service[data-state='checking'] .service__dot {
         animation: none;
       }
     }

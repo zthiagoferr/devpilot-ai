@@ -5,9 +5,7 @@ export const routes: Routes = [
     path: 'overview',
     title: 'Visão geral — DevPilot AI',
     loadComponent: () =>
-      import('./features/overview/overview.component').then(
-        (module) => module.OverviewComponent,
-      ),
+      import('./features/overview/overview.component').then((module) => module.OverviewComponent),
   },
   {
     path: 'analysis/new',
@@ -21,9 +19,7 @@ export const routes: Routes = [
     path: 'history',
     title: 'Histórico — DevPilot AI',
     loadComponent: () =>
-      import('./features/history/history.component').then(
-        (module) => module.HistoryComponent,
-      ),
+      import('./features/history/history.component').then((module) => module.HistoryComponent),
   },
   {
     path: 'history/:id',

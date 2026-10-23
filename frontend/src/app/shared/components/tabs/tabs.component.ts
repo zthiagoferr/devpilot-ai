@@ -65,6 +65,7 @@ export interface TabItem {
       display: flex;
       gap: 4px;
       overflow-x: auto;
+      overflow-y: hidden;
       border-block-end: 1px solid var(--color-border-soft);
       scrollbar-width: thin;
     }
@@ -89,7 +90,7 @@ export interface TabItem {
     }
 
     .tabs__tab::after {
-      content: "";
+      content: '';
       position: absolute;
       inset-inline: 8px;
       inset-block-end: -1px;
@@ -100,11 +101,11 @@ export interface TabItem {
       transition: background-color 150ms var(--ease-ui);
     }
 
-    .tabs__tab[aria-selected="true"] {
+    .tabs__tab[aria-selected='true'] {
       color: var(--color-text);
     }
 
-    .tabs__tab[aria-selected="true"]::after {
+    .tabs__tab[aria-selected='true']::after {
       background-color: var(--color-accent);
       box-shadow: 0 0 12px 1px rgb(96 165 250 / 0.55);
     }
@@ -130,7 +131,7 @@ export interface TabItem {
     }
 
     @media (hover: hover) {
-      .tabs__tab:hover:not(:disabled, [aria-selected="true"]) {
+      .tabs__tab:hover:not(:disabled, [aria-selected='true']) {
         background-color: var(--color-surface-sunken);
         color: var(--color-text);
       }

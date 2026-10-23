@@ -23,7 +23,7 @@ import { IconComponent } from '../../shared/components/icon/icon.component';
       <app-empty-state
         icon="lock"
         title="Histórico privado"
-        description="Entre na sua conta para consultar as análises salvas. A autenticação será ativada na próxima etapa do painel."
+        description="Entre na sua conta para consultar as análises salvas. O acesso à conta estará disponível em breve."
       >
         <app-button variant="secondary" (click)="auth.open()">
           <app-icon name="lock" [size]="15" />

@@ -5,9 +5,7 @@ export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 @Component({
   selector: 'app-badge',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <span [class]="badgeClass()"><ng-content /></span>
-  `,
+  template: ` <span [class]="badgeClass()"><ng-content /></span> `,
   styles: `
     .badge {
       display: inline-flex;

@@ -173,7 +173,7 @@
 }
 
 .nav__link::before {
-  content: "";
+  content: '';
   position: absolute;
   inset-block: 10px;
   inset-inline-start: -1px;
