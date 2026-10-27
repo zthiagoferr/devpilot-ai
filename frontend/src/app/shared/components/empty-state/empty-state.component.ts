@@ -28,9 +28,9 @@ import { IconComponent, IconName } from '../icon/icon.component';
       gap: 8px;
       padding: 40px 24px;
       text-align: center;
-      border: 1px dashed var(--color-border);
+      border: 1px dashed #333333;
       border-radius: var(--radius-lg);
-      background-color: color-mix(in oklab, var(--color-surface-sunken) 70%, transparent);
+      background-color: #080808;
     }
 
     .empty__icon {
@@ -40,10 +40,10 @@ import { IconComponent, IconName } from '../icon/icon.component';
       width: 44px;
       height: 44px;
       margin-block-end: 4px;
-      border: 1px solid var(--color-border);
+      border: 1px solid #262626;
       border-radius: var(--radius-md);
-      background-color: var(--color-surface-raised);
-      color: var(--color-accent);
+      background-color: #1f1f1f;
+      color: #fafafa;
     }
 
     .empty__title {

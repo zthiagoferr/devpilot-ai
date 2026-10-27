@@ -68,31 +68,31 @@ export type ButtonSize = 'sm' | 'md';
     }
 
     .button--primary {
-      background-color: var(--color-primary);
-      color: var(--color-text);
-      box-shadow: 0 10px 28px -16px rgb(37 99 235 / 0.9);
+      background-color: #fafafa;
+      color: var(--color-on-primary);
+      box-shadow: 0 10px 28px -16px rgb(0 0 0 / 0.9);
     }
 
     .button--secondary {
-      background-color: var(--color-surface-raised);
-      border-color: color-mix(in oklab, var(--color-border) 40%, var(--color-muted));
-      color: var(--color-text);
+      background-color: #1f1f1f;
+      border-color: #333333;
+      color: #fafafa;
     }
 
     .button--ghost {
-      color: var(--color-muted);
+      color: #a3a3a3;
     }
 
     .button--danger {
-      background-color: var(--color-surface-raised);
-      border-color: color-mix(in oklab, var(--color-danger) 42%, transparent);
-      color: var(--color-danger);
+      background-color: transparent;
+      border-color: #4d4d4d;
+      color: #fafafa;
     }
 
     .button:focus-visible {
-      outline: 2px solid var(--color-accent);
-      outline-offset: 2px;
-      box-shadow: 0 0 0 4px rgb(37 99 235 / 0.25);
+      outline: 2px solid #fafafa;
+      outline-offset: 3px;
+      box-shadow: 0 0 0 4px rgb(250 250 250 / 0.18);
     }
 
     .button:active:not(:disabled) {
@@ -100,34 +100,35 @@ export type ButtonSize = 'sm' | 'md';
     }
 
     .button:disabled {
-      background-color: var(--color-surface-raised);
-      border-color: var(--color-border-soft);
-      color: var(--color-muted);
+      background-color: #1f1f1f;
+      border-color: #262626;
+      color: #a3a3a3;
       box-shadow: none;
       cursor: not-allowed;
     }
 
     .button--ghost:disabled {
-      background-color: transparent;
+      background-color: #1f1f1f;
     }
 
     @media (hover: hover) {
       .button--primary:hover:not(:disabled) {
-        background-color: color-mix(in oklab, var(--color-primary) 86%, #000);
+        background-color: #e5e5e5;
       }
 
       .button--secondary:hover:not(:disabled) {
-        background-color: color-mix(in oklab, var(--color-surface-raised) 82%, var(--color-border));
-        border-color: var(--color-accent);
+        background-color: #262626;
+        border-color: #666666;
       }
 
       .button--ghost:hover:not(:disabled) {
-        background-color: var(--color-surface-raised);
-        color: var(--color-text);
+        background-color: #1f1f1f;
+        color: #fafafa;
       }
 
       .button--danger:hover:not(:disabled) {
-        background-color: color-mix(in oklab, var(--color-danger) 14%, var(--color-surface));
+        border-color: #fafafa;
+        background-color: #1f1f1f;
       }
     }
 

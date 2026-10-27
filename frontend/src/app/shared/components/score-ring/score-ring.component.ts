@@ -60,11 +60,11 @@ type RingTone = 'success' | 'warning' | 'danger' | 'muted';
     }
 
     .score-ring__track {
-      stroke: var(--color-border-soft);
+      stroke: #262626;
     }
 
     .score-ring__value {
-      stroke: var(--color-muted);
+      stroke: #8a8a8a;
       stroke-linecap: round;
       transition:
         stroke-dashoffset 600ms var(--ease-ui),
@@ -72,18 +72,23 @@ type RingTone = 'success' | 'warning' | 'danger' | 'muted';
     }
 
     .score-ring--success .score-ring__value {
-      stroke: var(--color-success);
-      filter: drop-shadow(0 0 5px rgb(52 211 153 / 0.35));
+      stroke: #fafafa;
+      stroke-width: 8;
     }
 
     .score-ring--warning .score-ring__value {
-      stroke: var(--color-warning);
-      filter: drop-shadow(0 0 5px rgb(251 191 36 / 0.3));
+      stroke: #a3a3a3;
+      stroke-width: 8;
     }
 
     .score-ring--danger .score-ring__value {
-      stroke: var(--color-danger);
-      filter: drop-shadow(0 0 5px rgb(248 113 113 / 0.3));
+      stroke: #fafafa;
+      stroke-width: 10;
+      stroke-linecap: butt;
+    }
+
+    .score-ring--danger .score-ring__number {
+      font-weight: 700;
     }
 
     .score-ring__center {

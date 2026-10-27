@@ -61,7 +61,7 @@ const DEFAULT_LIMIT = 150_000;
     }
 
     .source__meta {
-      color: var(--color-muted);
+      color: #a3a3a3;
       font-size: var(--text-caption);
     }
 
@@ -70,10 +70,10 @@ const DEFAULT_LIMIT = 150_000;
       margin: 0;
       padding: 16px;
       overflow: auto;
-      border: 1px solid var(--color-border-soft);
+      border: 1px solid #262626;
       border-radius: var(--radius-md);
-      background-color: var(--color-surface-sunken);
-      color: var(--color-text);
+      background-color: #080808;
+      color: #fafafa;
       font-size: 0.8125rem;
       line-height: 1.65;
       tab-size: 4;
@@ -82,7 +82,7 @@ const DEFAULT_LIMIT = 150_000;
     }
 
     .source__code:focus-visible {
-      outline: 2px solid var(--color-accent);
+      outline: 2px solid #fafafa;
       outline-offset: 2px;
     }
   `,

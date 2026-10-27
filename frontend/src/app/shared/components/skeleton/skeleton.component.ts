@@ -34,9 +34,9 @@ export type SkeletonVariant = 'text' | 'block' | 'circle';
       border-radius: var(--radius-sm);
       background: linear-gradient(
         90deg,
-        var(--color-surface-raised) 0%,
-        color-mix(in oklab, var(--color-surface-raised) 70%, var(--color-border)) 50%,
-        var(--color-surface-raised) 100%
+        #1a1a1a 0%,
+        #262626 50%,
+        #1a1a1a 100%
       );
       background-size: 200% 100%;
       animation: shimmer 1.6s var(--ease-ui) infinite;
@@ -72,7 +72,7 @@ export type SkeletonVariant = 'text' | 'block' | 'circle';
     @media (prefers-reduced-motion: reduce) {
       .skeleton__shape {
         animation: none;
-        background: var(--color-surface-raised);
+        background: #1f1f1f;
       }
     }
 

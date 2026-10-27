@@ -22,9 +22,12 @@
 }
 
 .history-table thead th {
-  color: var(--color-muted);
-  font-size: var(--text-caption);
+  color: #8a8a8a;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 550;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -55,22 +58,22 @@
   align-items: center;
   gap: 4px;
   min-height: 44px;
-  color: var(--color-accent);
+  color: #fafafa;
   font-size: var(--text-caption);
   font-weight: 550;
-  text-decoration: none;
+  text-decoration: underline;
   white-space: nowrap;
 }
 
 .history-table__action:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid #fafafa;
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 
 @media (hover: hover) {
   .history-table tbody tr:hover {
-    background-color: var(--color-surface-raised);
+    background-color: #181818;
   }
 }
 

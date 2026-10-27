@@ -42,17 +42,17 @@ const TONE_ICON: Readonly<Record<InlineStatusTone, IconName>> = {
       align-items: flex-start;
       gap: 10px;
       padding: 12px 14px;
-      border: 1px solid var(--color-border);
+      border: 1px solid #262626;
       border-radius: var(--radius-md);
-      background-color: var(--color-surface-sunken);
-      color: var(--color-muted);
+      background-color: #080808;
+      color: #a3a3a3;
       font-size: var(--text-body-sm);
     }
 
     .status__icon {
       display: inline-flex;
       margin-block-start: 2px;
-      color: var(--color-accent);
+      color: #a3a3a3;
     }
 
     .status__content {
@@ -69,30 +69,31 @@ const TONE_ICON: Readonly<Record<InlineStatusTone, IconName>> = {
     }
 
     .status--success {
-      border-color: color-mix(in oklab, var(--color-success) 36%, transparent);
-      background-color: color-mix(in oklab, var(--color-success) 8%, var(--color-surface));
+      border-color: #404040;
+      background-color: #080808;
     }
 
     .status--success .status__icon {
-      color: var(--color-success);
+      color: #fafafa;
     }
 
     .status--warning {
-      border-color: color-mix(in oklab, var(--color-warning) 36%, transparent);
-      background-color: color-mix(in oklab, var(--color-warning) 8%, var(--color-surface));
+      border-color: #8a8a8a;
+      border-style: dashed;
+      background-color: #080808;
     }
 
     .status--warning .status__icon {
-      color: var(--color-warning);
+      color: #a3a3a3;
     }
 
     .status--error {
-      border-color: color-mix(in oklab, var(--color-danger) 36%, transparent);
-      background-color: color-mix(in oklab, var(--color-danger) 8%, var(--color-surface));
+      border-color: #fafafa;
+      background-color: #1f1f1f;
     }
 
     .status--error .status__icon {
-      color: var(--color-danger);
+      color: #fafafa;
     }
 
     .status--loading .status__icon {

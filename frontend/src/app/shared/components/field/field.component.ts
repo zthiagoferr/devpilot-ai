@@ -47,17 +47,20 @@ import { IconComponent } from '../icon/icon.component';
       display: inline-flex;
       align-items: baseline;
       gap: 4px;
-      color: var(--color-text);
-      font-size: var(--text-body-sm);
+      color: #a3a3a3;
+      font-family: var(--font-mono);
+      font-size: 11px;
       font-weight: 550;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
     .field__required {
-      color: var(--color-accent);
+      color: #fafafa;
     }
 
     .field__hint {
-      color: var(--color-muted);
+      color: #8a8a8a;
       font-size: var(--text-caption);
     }
 
@@ -65,7 +68,7 @@ import { IconComponent } from '../icon/icon.component';
       display: flex;
       align-items: flex-start;
       gap: 6px;
-      color: var(--color-danger);
+      color: #fafafa;
       font-size: var(--text-caption);
     }
 

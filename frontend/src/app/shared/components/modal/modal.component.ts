@@ -78,8 +78,8 @@ let dialogSequence = 0;
     }
 
     .modal::backdrop {
-      background-color: rgb(4 6 10 / 0.72);
-      backdrop-filter: blur(2px);
+      background-color: rgb(0 0 0 / 0.74);
+      backdrop-filter: blur(3px);
     }
 
     .modal__panel {
@@ -89,14 +89,14 @@ let dialogSequence = 0;
       max-height: calc(100dvh - 32px);
       overflow-y: auto;
       padding: 24px;
-      border: 1px solid var(--color-border);
+      border: 1px solid #333333;
       border-radius: var(--radius-xl);
       background-color: var(--color-surface);
-      box-shadow: 0 32px 80px -32px rgb(0 0 0 / 0.85);
+      box-shadow: 0 40px 120px -40px #000;
     }
 
     .modal__panel:focus-visible {
-      outline: 2px solid var(--color-accent);
+      outline: 2px solid #fafafa;
       outline-offset: 4px;
     }
 

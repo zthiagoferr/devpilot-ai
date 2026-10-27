@@ -15,10 +15,10 @@
   gap: 8px;
   margin-block-end: 16px;
   padding: 12px 14px;
-  border: 1px solid color-mix(in oklab, var(--color-warning) 36%, transparent);
+  border: 1px solid #404040;
   border-radius: var(--radius-md);
-  background-color: color-mix(in oklab, var(--color-warning) 8%, var(--color-surface));
-  color: var(--color-muted);
+  background-color: #141414;
+  color: #a3a3a3;
   font-size: var(--text-body-sm);
 }
 
@@ -41,7 +41,7 @@
   content: '';
   flex: 1;
   height: 1px;
-  background-color: var(--color-border-soft);
+  background-color: #8a8a8a;
 }
 
 .auth-switch {
@@ -56,7 +56,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--color-accent);
+  color: #fafafa;
   font-size: var(--text-caption);
   text-decoration: underline;
   text-underline-offset: 0.2em;
@@ -64,7 +64,7 @@
 }
 
 .auth-switch__link:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid #fafafa;
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }

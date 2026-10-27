@@ -106,17 +106,16 @@ export interface TabItem {
     }
 
     .tabs__tab[aria-selected='true']::after {
-      background-color: var(--color-accent);
-      box-shadow: 0 0 12px 1px rgb(96 165 250 / 0.55);
+      background-color: #fafafa;
     }
 
     .tabs__tab:disabled {
-      opacity: 0.55;
+      opacity: 0.45;
       cursor: not-allowed;
     }
 
     .tabs__tab:focus-visible {
-      outline: 2px solid var(--color-accent);
+      outline: 2px solid #fafafa;
       outline-offset: -2px;
     }
 
@@ -125,14 +124,14 @@ export interface TabItem {
     }
 
     .tabs__panel:focus-visible {
-      outline: 2px solid var(--color-accent);
+      outline: 2px solid #fafafa;
       outline-offset: 4px;
       border-radius: var(--radius-sm);
     }
 
     @media (hover: hover) {
       .tabs__tab:hover:not(:disabled, [aria-selected='true']) {
-        background-color: var(--color-surface-sunken);
+        background-color: #1a1a1a;
         color: var(--color-text);
       }
     }

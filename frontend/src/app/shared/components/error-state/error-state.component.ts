@@ -29,9 +29,9 @@ import { IconComponent } from '../icon/icon.component';
       align-items: flex-start;
       gap: 8px;
       padding: 24px;
-      border: 1px solid color-mix(in oklab, var(--color-danger) 32%, transparent);
+      border: 1px solid #fafafa;
       border-radius: var(--radius-lg);
-      background-color: color-mix(in oklab, var(--color-danger) 7%, var(--color-surface));
+      background-color: #1f1f1f;
     }
 
     .error__icon {
@@ -40,20 +40,20 @@ import { IconComponent } from '../icon/icon.component';
       justify-content: center;
       width: 44px;
       height: 44px;
-      border: 1px solid color-mix(in oklab, var(--color-danger) 40%, transparent);
+      border: 1px solid #fafafa;
       border-radius: var(--radius-md);
-      background-color: color-mix(in oklab, var(--color-danger) 10%, var(--color-surface));
-      color: var(--color-danger);
+      background-color: #141414;
+      color: #fafafa;
     }
 
     .error__title {
-      color: var(--color-text);
+      color: #fafafa;
       font-size: var(--text-heading);
     }
 
     .error__description {
       max-width: 62ch;
-      color: var(--color-muted);
+      color: #a3a3a3;
       font-size: var(--text-body-sm);
       line-height: 1.55;
     }

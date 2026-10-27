@@ -1,7 +1,7 @@
 # DevPilot AI — frontend
 
 SPA em Angular 21 (standalone, zoneless, signals) + TailwindCSS 4, com tema escuro
-preto/azul elétrico. Consome a API FastAPI do repositório.
+preto/branco/cinza. Consome a API FastAPI do repositório.
 
 ## Requisitos
 
@@ -76,6 +76,7 @@ A aba **Repositório GitHub** carrega apenas arquivos Python elegíveis via
 
 ## Acessibilidade
 
-Foco visível (outline `#60A5FA` + glow), alvos de 44px, skip link, drawer com
-`inert`, live regions nos estados e `prefers-reduced-motion` respeitado.
-`#2563EB` é usado apenas como preenchimento; texto e foco usam `#60A5FA`.
+Foco visível (outline `#FAFAFA` + anel neutro), alvos de 44px, skip link, drawer
+com `inert`, live regions nos estados e `prefers-reduced-motion` respeitado.
+O botão primário é branco (`#FAFAFA`) com texto preto; a hierarquia visual usa
+contraste, peso e bordas — sem cor cromática.

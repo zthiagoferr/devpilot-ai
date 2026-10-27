@@ -58,28 +58,30 @@ const LABELS: Readonly<Record<ServiceState, string>> = {
       height: 8px;
       flex: none;
       border-radius: 9999px;
-      background-color: var(--color-muted);
+      background-color: #a3a3a3;
       transition:
         background-color 150ms var(--ease-ui),
         box-shadow 150ms var(--ease-ui);
     }
 
     .service[data-state='online'] .service__dot {
-      background-color: var(--color-success);
-      box-shadow: 0 0 10px 1px rgb(52 211 153 / 0.5);
+      background-color: #fafafa;
+      box-shadow: 0 0 0 3px rgb(250 250 250 / 0.14);
     }
 
     .service[data-state='degraded'] .service__dot {
-      background-color: var(--color-warning);
-      box-shadow: 0 0 10px 1px rgb(251 191 36 / 0.45);
+      background-color: #a3a3a3;
+      box-shadow: 0 0 0 3px rgb(163 163 163 / 0.12);
     }
 
     .service[data-state='offline'] .service__dot {
-      background-color: var(--color-danger);
-      box-shadow: 0 0 10px 1px rgb(248 113 113 / 0.45);
+      background-color: transparent;
+      box-shadow: inset 0 0 0 2px #fafafa;
     }
 
     .service[data-state='checking'] .service__dot {
+      background-color: #a3a3a3;
+      box-shadow: 0 0 0 3px rgb(163 163 163 / 0.12);
       animation: breathe 1.4s var(--ease-ui) infinite;
     }
 

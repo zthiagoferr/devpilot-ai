@@ -13,10 +13,10 @@ export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
       gap: 6px;
       min-height: 24px;
       padding-inline: 8px;
-      border: 1px solid var(--color-border);
+      border: 1px solid #262626;
       border-radius: 9999px;
-      background-color: var(--color-surface-raised);
-      color: var(--color-muted);
+      background-color: #1f1f1f;
+      color: #a3a3a3;
       font-size: var(--text-caption);
       font-weight: 550;
       line-height: 1;
@@ -24,27 +24,28 @@ export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
     }
 
     .badge--info {
-      border-color: color-mix(in oklab, var(--color-accent) 40%, transparent);
-      background-color: color-mix(in oklab, var(--color-accent) 12%, var(--color-surface));
-      color: var(--color-accent);
+      border-color: #404040;
+      background-color: #141414;
+      color: #a3a3a3;
     }
 
     .badge--success {
-      border-color: color-mix(in oklab, var(--color-success) 40%, transparent);
-      background-color: color-mix(in oklab, var(--color-success) 12%, var(--color-surface));
-      color: var(--color-success);
+      border-color: #404040;
+      background-color: transparent;
+      color: #fafafa;
     }
 
     .badge--warning {
-      border-color: color-mix(in oklab, var(--color-warning) 40%, transparent);
-      background-color: color-mix(in oklab, var(--color-warning) 12%, var(--color-surface));
-      color: var(--color-warning);
+      border-color: #8a8a8a;
+      border-style: dashed;
+      background-color: #1f1f1f;
+      color: #fafafa;
     }
 
     .badge--danger {
-      border-color: color-mix(in oklab, var(--color-danger) 40%, transparent);
-      background-color: color-mix(in oklab, var(--color-danger) 12%, var(--color-surface));
-      color: var(--color-danger);
+      border-color: #fafafa;
+      background-color: #fafafa;
+      color: #0a0a0a;
     }
   `,
 })
