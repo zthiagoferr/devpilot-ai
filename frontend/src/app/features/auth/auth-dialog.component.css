@@ -1,0 +1,70 @@
+:host {
+  display: contents;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-verify {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block-end: 16px;
+  padding: 12px 14px;
+  border: 1px solid #404040;
+  border-radius: var(--radius-md);
+  background-color: #141414;
+  color: #a3a3a3;
+  font-size: var(--text-body-sm);
+}
+
+.auth-verify__email {
+  color: var(--color-text);
+  font-weight: 550;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block: 16px;
+  color: var(--color-muted);
+  font-size: var(--text-caption);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: #8a8a8a;
+}
+
+.auth-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-block-start: 16px;
+}
+
+.auth-switch__link {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #fafafa;
+  font-size: var(--text-caption);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.auth-switch__link:focus-visible {
+  outline: 2px solid #fafafa;
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

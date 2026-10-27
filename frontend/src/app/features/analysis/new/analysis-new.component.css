@@ -1,0 +1,16 @@
+:host {
+  display: block;
+}
+
+.rail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 1px solid #333333;
+  border-radius: var(--radius-sm);
+  background-color: #1f1f1f;
+  color: #fafafa;
+}

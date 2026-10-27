@@ -85,18 +85,59 @@ provedor.
 
 8. Após o deploy, anote a URL pública (ex.: `https://devpilot-ai.onrender.com`).
 
-## 3. GitHub Actions (frontend no Pages)
+## 3. Frontend Angular (GitHub Pages)
 
-1. Em **Settings → Secrets and variables → Actions → Variables**, defina a
-   *repository variable*:
+O frontend publicado no Pages é a SPA Angular de `frontend/` (Angular 21 +
+Tailwind 4), construída e validada pelo workflow
+`.github/workflows/pages.yml`.
 
-   ```text
-   DEVPILOT_API_URL = https://<seu-servico>.onrender.com
-   ```
+### 3.1. Variável da API
 
-2. Reexecute o workflow existente **sem editá-lo**: **Actions → "Deploy DevPilot
-   AI frontend to GitHub Pages" → Run workflow**
-   (`workflow_dispatch`). Isso regenera o `site/config.js` com a URL da API.
+Em **Settings → Secrets and variables → Actions → Variables**, defina a
+*repository variable*:
+
+```text
+DEVPILOT_API_URL = https://<seu-servico>.onrender.com
+```
+
+Ela é pública (aparece no `config.js` enviado ao navegador). O `config.js` é
+gerado no runner por `frontend/scripts/write-config.mjs` e contém apenas
+`apiBaseUrl` e `basePath`; nenhum segredo do backend entra no artefato.
+
+### 3.2. Build e configuração local
+
+```bash
+cd frontend
+npm ci
+npm run build:prod        # gera frontend/dist/
+
+# desenvolvimento com a API local em http://localhost:8000
+npm start                 # ng serve em http://localhost:4200
+```
+
+Para apontar build/dev server para outra API, gere o runtime config antes:
+
+```bash
+npm run config -- --api-base-url=https://api.example.com --base-path=/devpilot-ai
+npm run build:prod
+```
+
+O `public/config.js` é copiado para o artefato e carregado **antes** do bundle.
+O workflow usa o `base_path` do `actions/configure-pages` no `--base-href` e no
+`basePath` do runtime config (ex.: `/devpilot-ai`), monta o artefato em
+`$RUNNER_TEMP/site` (nunca no `site/` do checkout) e testa o site servido em
+subpath. A validação falha se faltar `index.html`, `config.js`, bundle CSS/JS,
+se houver asset com URL absoluta ou se `config.js` não vier antes do bundle.
+
+### 3.3. Publicação
+
+Reexecute **Actions → "Deploy DevPilot AI frontend to GitHub Pages" → Run
+workflow** (`workflow_dispatch`) depois de criar/alterar a variable. O deploy
+continua usando `actions/upload-pages-artifact` + `actions/deploy-pages`.
+
+O dashboard legado em `web/` continua sendo servido pelo backend em
+`/dashboard` como fallback até o cutover (F7); o Pages publica apenas a SPA
+Angular.
 
 ## 4. Checklist de validação pública
 
@@ -162,14 +203,17 @@ Substitua `$API` pela URL do Render e `$FRONTEND` por
   - Repita `POST /analyses` acima de `RATE_LIMIT_REQUESTS` na janela →
     `429` com header `Retry-After`.
 
-- **Frontend no ar e sem segredos**
+- **Frontend Angular no ar e sem segredos**
   - No site publicado, execute uma análise real e um load de repositório.
-  - Confirme que `site/config.js` contém apenas `apiBaseUrl`/`basePath`.
-  - Busque segredos no artefato publicado (deve retornar vazio):
+  - Confirme que o `config.js` do artefato contém apenas
+    `apiBaseUrl`/`basePath`.
+  - Busque segredos no artefato publicado (deve retornar vazio). Localmente,
+    use o build em `frontend/dist/`; no runner, o diretório é
+    `$RUNNER_TEMP/site`:
 
     ```sh
     grep -RIl -e "DATABASE_URL" -e "GITHUB_TOKEN" -e "LLM_API_KEY" \
-      -e "FIREBASE_SERVICE_ACCOUNT_JSON" -e "private_key" site/
+      -e "FIREBASE_SERVICE_ACCOUNT_JSON" -e "private_key" frontend/dist/
     ```
 
 ## 5. Notas finais
@@ -217,16 +261,34 @@ respondem `401` (fail-closed).
 
 ### 6.3. Frontend (config pública)
 
-Em `web/dashboard.js`, preencha `FIREBASE_CONFIG` com os valores de
-**Project settings → Your apps → Web app** (`apiKey`, `authDomain`,
-`projectId`, `appId`). Esses valores são **públicos por natureza** (vão para o
-navegador); a *API key* do Firebase Web não é um segredo. O `service account`
-do backend, sim.
+A configuração web pública padrão fica em
+`frontend/src/app/core/auth/firebase-config.ts` (`FIREBASE_CONFIG`), não mais em
+`web/dashboard.js` (painel legado). Preencha com os valores de **Project
+settings → Your apps → Web app** (`apiKey`, `authDomain`, `projectId`,
+`appId`). Esses valores são **públicos por natureza** (vão para o navegador); a
+*API key* do Firebase Web não é um segredo. A *service account* do backend,
+sim.
 
-Enquanto `FIREBASE_CONFIG` estiver vazio, o dashboard degrada com elegância: as
+Em runtime, `window.DevPilotConfig.firebase` pode sobrepor ou complementar
+esses valores sem rebuild. Inclua o objeto no `config.js` do artefato (o
+arquivo gerado por `frontend/scripts/write-config.mjs` pode ser complementado
+no deploy):
+
+```js
+window.DevPilotConfig = {
+  apiBaseUrl: 'https://api.example.com',
+  basePath: '/devpilot-ai',
+  firebase: { apiKey: '...', projectId: '...' },
+};
+```
+
+Mantenha os valores padrão versionados em `firebase-config.ts`; o override é
+útil para variar o projeto Firebase por ambiente.
+
+Enquanto `apiKey`/`projectId` estiverem vazios, a SPA degrada com elegância: as
 análises (código colado e repositório) continuam funcionando para visitantes e a
 área de conta explica que o acesso não está configurado. O SDK só é importado
-(do CDN oficial, versão fixada) quando houver configuração.
+quando houver configuração.
 
 ### 6.4. Ordem de deploy
 
@@ -235,7 +297,8 @@ análises (código colado e repositório) continuam funcionando para visitantes 
    (`analyses.user_id`), sem backfill: linhas antigas ficam com `user_id NULL` e
    não aparecem em nenhum histórico.
 2. Variáveis do Firebase no Render (6.2) e redeploy.
-3. `FIREBASE_CONFIG` no frontend (6.3) + publicação do Pages (seção 3).
+3. Configuração pública do Firebase no frontend (6.3) + publicação do Pages
+   (seção 3).
 4. Domínios autorizados e provedores (6.1) antes de divulgar o link.
 
 ### 6.5. Checklist de autenticação

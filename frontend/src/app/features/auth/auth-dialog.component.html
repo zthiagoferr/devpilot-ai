@@ -1,0 +1,105 @@
+<app-modal
+  [title]="title()"
+  [description]="description()"
+  [opened]="prompts.isOpen()"
+  (closed)="prompts.close()"
+>
+  @if (showVerification()) {
+    <div class="auth-verify">
+      <p>
+        Confirme seu e-mail para manter o acesso à sua conta.
+        @if (auth.email(); as email) {
+          <span class="auth-verify__email">{{ email }}</span>
+        }
+      </p>
+      <app-button
+        size="sm"
+        variant="secondary"
+        [loading]="submitting()"
+        (click)="resendVerification()"
+      >
+        Reenviar confirmação
+      </app-button>
+    </div>
+  }
+
+  <form
+    class="auth-form"
+    novalidate
+    [attr.aria-busy]="submitting() ? 'true' : null"
+    (submit)="submit($event)"
+  >
+    <app-input
+      label="E-mail"
+      type="email"
+      name="email"
+      [autocomplete]="emailAutocomplete()"
+      placeholder="voce@exemplo.com"
+      [required]="true"
+      [value]="email()"
+      [error]="emailError()"
+      (valueChange)="email.set($event)"
+    />
+
+    @if (!isReset()) {
+      <app-input
+        label="Senha"
+        type="password"
+        name="password"
+        [autocomplete]="mode() === 'register' ? 'new-password' : 'current-password'"
+        [hint]="mode() === 'register' ? 'Ao menos 6 caracteres.' : ''"
+        [required]="true"
+        [value]="password()"
+        [error]="passwordError()"
+        (valueChange)="password.set($event)"
+      />
+    }
+
+    @if (status(); as currentStatus) {
+      <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
+    }
+
+    <app-button type="submit" [fullWidth]="true" [loading]="submitting()" [disabled]="!available()">
+      <app-icon name="lock" [size]="15" />
+      {{ submitLabel() }}
+    </app-button>
+  </form>
+
+  @if (!isReset()) {
+    <div class="auth-divider" aria-hidden="true"><span>ou</span></div>
+
+    <app-button
+      variant="secondary"
+      [fullWidth]="true"
+      [loading]="submitting()"
+      [disabled]="!available()"
+      (click)="signInWithGithub()"
+    >
+      <app-icon name="gitBranch" [size]="16" />
+      Entrar com GitHub
+    </app-button>
+  }
+
+  <nav class="auth-switch" aria-label="Outras opções de acesso">
+    @switch (mode()) {
+      @case ('login') {
+        <button type="button" class="auth-switch__link" (click)="selectMode('register')">
+          Criar uma conta
+        </button>
+        <button type="button" class="auth-switch__link" (click)="selectMode('reset')">
+          Esqueci minha senha
+        </button>
+      }
+      @case ('register') {
+        <button type="button" class="auth-switch__link" (click)="selectMode('login')">
+          Já tenho conta
+        </button>
+      }
+      @default {
+        <button type="button" class="auth-switch__link" (click)="selectMode('login')">
+          Voltar para o login
+        </button>
+      }
+    }
+  </nav>
+</app-modal>

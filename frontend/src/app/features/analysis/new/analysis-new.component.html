@@ -1,0 +1,143 @@
+<div class="flex flex-col gap-8">
+  <header class="flex flex-col gap-3">
+    <h1 class="text-display font-semibold tracking-[-0.02em] text-text">Nova análise</h1>
+    <p class="max-w-[64ch] text-body text-muted">
+      Cole o código ou selecione um arquivo de um repositório GitHub para receber score, problemas
+      priorizados e um resumo dos agentes. A análise não exige conta.
+    </p>
+  </header>
+
+  <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+    <div class="flex min-w-0 flex-col gap-6">
+      <app-card padding="lg">
+        <app-tabs [tabs]="tabs" [(activeId)]="activeTab" ariaLabel="Método de análise">
+          @if (activeTab() === 'paste') {
+            <form
+              class="flex flex-col gap-5"
+              novalidate
+              [attr.aria-busy]="loading() ? 'true' : null"
+              (submit)="submit($event)"
+            >
+              <app-input
+                label="Nome do projeto"
+                placeholder="Ex.: api-client"
+                hint="Serve para identificar a análise no resultado."
+                autocomplete="off"
+                [maxlength]="120"
+                [required]="true"
+                [error]="projectNameError()"
+                [value]="projectName()"
+                (valueChange)="projectName.set($event)"
+                (blurred)="projectNameTouched.set(true)"
+              />
+
+              <app-textarea
+                label="Código-fonte"
+                placeholder="Cole aqui o arquivo Python que deve ser analisado."
+                hint="Python · até 1 MB"
+                [rows]="14"
+                [required]="true"
+                [error]="sourceCodeError()"
+                [value]="sourceCode()"
+                (valueChange)="sourceCode.set($event)"
+              />
+
+              @if (status(); as currentStatus) {
+                <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
+              }
+
+              <div class="flex flex-wrap items-center gap-3">
+                <app-button type="submit" [loading]="loading()" [disabled]="loading()">
+                  <app-icon name="sparkles" [size]="16" />
+                  Analisar código
+                </app-button>
+                <app-button type="button" variant="ghost" (click)="clear()">Limpar</app-button>
+                <p class="mono-metric text-caption text-muted ml-auto">
+                  {{ formatBytes(sourceBytes()) }} de 1 MB
+                </p>
+              </div>
+            </form>
+          } @else {
+            <app-repository-analysis (analyzed)="handleRepositoryResult($event)" />
+          }
+        </app-tabs>
+      </app-card>
+
+      @if (result(); as analysis) {
+        <app-card padding="lg">
+          <div class="flex flex-col gap-5 sm:flex-row sm:items-start">
+            <app-score-ring [score]="analysis.result?.score ?? null" [size]="104" caption="score" />
+
+            <div class="flex min-w-0 flex-1 flex-col gap-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <h2 class="text-heading font-semibold text-text">Resultado da análise</h2>
+                @if (resultIssues().length === 0) {
+                  <app-badge tone="success">Nenhum problema</app-badge>
+                } @else {
+                  <app-badge tone="warning">
+                    {{ resultIssues().length }}
+                    {{ resultIssues().length === 1 ? 'problema' : 'problemas' }}
+                  </app-badge>
+                }
+              </div>
+
+              @if (resultSummary(); as summary) {
+                <p class="text-body-sm leading-relaxed text-muted">{{ summary }}</p>
+              } @else {
+                <p class="text-body-sm text-muted">
+                  Os agentes não retornaram um resumo para esta análise.
+                </p>
+              }
+
+              <div class="flex flex-wrap items-center gap-3">
+                <app-button size="sm" variant="secondary" (click)="openDetail(analysis.id)">
+                  Ver análise completa
+                </app-button>
+                <p class="text-caption text-muted">O detalhe salvo exige login.</p>
+              </div>
+            </div>
+          </div>
+        </app-card>
+      }
+    </div>
+
+    <aside class="flex flex-col gap-4 lg:sticky lg:top-6" aria-label="Orientações da análise">
+      <app-card padding="md">
+        <div class="flex flex-col gap-4">
+          <div class="flex items-center gap-2">
+            <span class="rail-icon" aria-hidden="true">
+              <app-icon name="activity" [size]="18" />
+            </span>
+            <h2 class="text-heading font-semibold text-text">O que é avaliado</h2>
+          </div>
+
+          <ul class="flex flex-col gap-3">
+            @for (item of evaluationItems; track item) {
+              <li class="flex items-start gap-2 text-body-sm text-muted">
+                <span class="mt-0.5 text-success" aria-hidden="true">
+                  <app-icon name="check" [size]="15" [strokeWidth]="2" />
+                </span>
+                {{ item }}
+              </li>
+            }
+          </ul>
+        </div>
+      </app-card>
+
+      <app-card padding="md">
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center gap-2">
+            <span class="rail-icon" aria-hidden="true">
+              <app-icon name="lock" [size]="18" />
+            </span>
+            <h2 class="text-heading font-semibold text-text">Privacidade</h2>
+          </div>
+          <p class="text-body-sm leading-relaxed text-muted">
+            Análises anônimas não ficam vinculadas a uma conta. Entre para salvar o resultado e
+            consultar o histórico quando o acesso à conta estiver disponível.
+          </p>
+        </div>
+      </app-card>
+    </aside>
+  </div>
+</div>

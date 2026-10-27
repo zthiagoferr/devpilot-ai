@@ -1,0 +1,120 @@
+<div class="flex flex-col gap-8">
+  <header class="flex flex-col gap-3">
+    <h1 class="text-display font-semibold tracking-[-0.02em] text-text">Histórico</h1>
+    <p class="max-w-[62ch] text-body text-muted">
+      Suas análises salvas ficam privadas na conta e ordenadas da mais recente para a mais antiga.
+    </p>
+  </header>
+
+  @if (isVisitor()) {
+    <app-empty-state
+      icon="lock"
+      title="Histórico privado"
+      description="Entre na sua conta para consultar as análises salvas. A análise manual e a de repositório continuam disponíveis sem login."
+    >
+      <app-button variant="secondary" (click)="prompts.open()">
+        <app-icon name="lock" [size]="15" />
+        Entrar
+      </app-button>
+      <app-button variant="ghost" (click)="startAnalysis()">
+        <app-icon name="plus" [size]="15" />
+        Analisar sem conta
+      </app-button>
+    </app-empty-state>
+  } @else {
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-caption text-muted">
+        @if (history.total() > 0) {
+          {{ history.total() }}
+          {{ history.total() === 1 ? 'análise salva' : 'análises salvas' }}
+        } @else if (!loading()) {
+          Nenhuma análise salva por enquanto.
+        }
+      </p>
+      <app-button
+        variant="secondary"
+        size="sm"
+        [loading]="loading()"
+        [disabled]="loading()"
+        (click)="refresh()"
+      >
+        <app-icon name="activity" [size]="14" />
+        Atualizar
+      </app-button>
+    </div>
+
+    @if (loading()) {
+      <app-card padding="lg">
+        <div class="flex flex-col gap-4" aria-busy="true">
+          <app-skeleton variant="text" [lines]="1" label="Carregando histórico" />
+          @for (line of [1, 2, 3, 4]; track line) {
+            <app-skeleton variant="text" [lines]="1" label="" />
+          }
+        </div>
+      </app-card>
+    } @else if (hasError()) {
+      <app-error-state
+        title="Não foi possível carregar o histórico"
+        [description]="history.error() ?? 'Tente novamente em instantes.'"
+        (retry)="refresh()"
+      />
+    } @else if (isEmpty()) {
+      <app-empty-state
+        icon="history"
+        title="Nenhuma análise salva ainda"
+        description="Envie seu primeiro arquivo para começar a acompanhar score e problemas ao longo do tempo."
+      >
+        <app-button (click)="startAnalysis()">
+          <app-icon name="plus" [size]="15" />
+          Nova análise
+        </app-button>
+      </app-empty-state>
+    } @else if (hasItems()) {
+      <app-card padding="none">
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <caption class="sr-only">
+              Análises salvas na sua conta, da mais recente para a mais antiga
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Projeto</th>
+                <th scope="col">Origem</th>
+                <th scope="col">Data</th>
+                <th scope="col">Pontuação</th>
+                <th scope="col">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (analysis of history.sorted(); track analysis.id) {
+                <tr>
+                  <td>
+                    <div class="history-table__project">
+                      <span class="history-table__name">{{ analysis.project_name }}</span>
+                      <app-badge [tone]="statusTone(analysis)">{{
+                        statusLabel(analysis)
+                      }}</app-badge>
+                    </div>
+                  </td>
+                  <td>{{ originLabel(analysis) }}</td>
+                  <td class="mono-metric">{{ formatDate(analysis.created_at) }}</td>
+                  <td class="mono-metric">{{ scoreLabel(analysis) }}</td>
+                  <td>
+                    <a
+                      class="history-table__action"
+                      [routerLink]="['/history', analysis.id]"
+                      [attr.aria-label]="'Ver detalhes da análise de ' + analysis.project_name"
+                    >
+                      Ver detalhes
+                      <app-icon name="chevronRight" [size]="14" />
+                    </a>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </app-card>
+    }
+  }
+</div>

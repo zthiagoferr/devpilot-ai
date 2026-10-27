@@ -1,0 +1,109 @@
+<form
+  class="repo-form"
+  novalidate
+  [attr.aria-busy]="store.isLoading() || submitting() ? 'true' : null"
+  (submit)="submit($event)"
+>
+  <div class="repo-form__grid">
+    <app-input
+      label="Nome do projeto"
+      placeholder="Ex.: pypa/sampleproject"
+      hint="Identifica a análise no histórico."
+      autocomplete="off"
+      [maxlength]="120"
+      [required]="true"
+      [error]="projectNameError()"
+      [value]="projectName()"
+      (valueChange)="projectName.set($event)"
+    />
+
+    <app-input
+      label="Repositório GitHub"
+      type="url"
+      placeholder="owner/repo ou https://github.com/owner/repo"
+      hint="Somente repositórios públicos."
+      autocomplete="off"
+      [spellcheck]="false"
+      [required]="true"
+      [error]="repositoryUrlError()"
+      [value]="repositoryUrl()"
+      (valueChange)="updateRepositoryUrl($event)"
+    />
+
+    <app-input
+      label="Branch"
+      placeholder="Branch padrão do repositório"
+      hint="Opcional."
+      autocomplete="off"
+      [spellcheck]="false"
+      [value]="branch()"
+      (valueChange)="updateBranch($event)"
+    />
+  </div>
+
+  <div class="repo-form__loader">
+    <app-button
+      type="button"
+      variant="secondary"
+      [loading]="store.isLoading()"
+      [disabled]="store.isLoading() || submitting()"
+      (click)="loadFiles()"
+    >
+      <app-icon name="gitBranch" [size]="16" />
+      Carregar arquivos
+    </app-button>
+    <p class="text-caption text-muted">
+      Buscamos apenas arquivos Python (<span class="mono-metric">.py</span> e
+      <span class="mono-metric">.pyi</span>) elegíveis para análise.
+    </p>
+  </div>
+
+  @if (loadStatus(); as currentStatus) {
+    <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
+  }
+
+  @if (showTruncated()) {
+    <app-inline-status
+      tone="warning"
+      message="Parte do repositório foi omitida pelos limites de tamanho ou quantidade. Os arquivos listados continuam disponíveis para análise."
+    />
+  }
+
+  <app-select
+    label="Arquivo"
+    [options]="store.options()"
+    [placeholder]="selectPlaceholder()"
+    [disabled]="!store.hasFiles()"
+    [hint]="
+      store.hasFiles()
+        ? 'O arquivo escolhido será enviado com a URL e o caminho de origem.'
+        : 'Os arquivos aparecem aqui depois de carregar o repositório.'
+    "
+    [error]="fileError()"
+    [value]="store.selectedPath()"
+    (valueChange)="store.select($event)"
+  />
+
+  @if (submitStatus(); as currentStatus) {
+    <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
+  }
+
+  <div class="repo-form__actions">
+    <app-button
+      type="submit"
+      [loading]="submitting()"
+      [disabled]="!store.hasFiles() || submitting() || store.isLoading()"
+    >
+      <app-icon name="sparkles" [size]="16" />
+      Analisar arquivo
+    </app-button>
+    <app-button type="button" variant="ghost" [disabled]="submitting()" (click)="clear()">
+      Limpar
+    </app-button>
+    @if (store.hasFiles()) {
+      <p class="mono-metric text-caption text-muted ml-auto">
+        {{ fileCount() }} {{ fileCount() === 1 ? 'arquivo' : 'arquivos' }}
+      </p>
+    }
+  </div>
+</form>

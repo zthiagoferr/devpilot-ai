@@ -1,0 +1,187 @@
+<div class="flex flex-col gap-8">
+  <header class="flex flex-col gap-3">
+    <h1 class="text-display font-semibold tracking-[-0.02em] text-text">Visão geral</h1>
+    <p class="max-w-[64ch] text-body text-muted">
+      Acompanhe a saúde do código e o resultado dos agentes em um só painel. Analise um trecho ou um
+      repositório público — sem conta. O histórico fica vinculado à sua sessão.
+    </p>
+  </header>
+
+  <section aria-label="Indicadores" class="grid gap-4 sm:grid-cols-3">
+    @for (metric of metrics(); track metric.label) {
+      <app-card padding="sm">
+        <div class="flex flex-col gap-2">
+          <p class="text-caption text-muted">{{ metric.label }}</p>
+          @if (loading() && auth.isAuthenticated() && metric.label !== 'Análises salvas') {
+            <app-skeleton variant="text" [lines]="1" [label]="'Carregando ' + metric.label" />
+          } @else {
+            <p class="mono-metric text-metric text-text">{{ metric.value }}</p>
+          }
+          <p class="text-caption text-muted truncate">{{ metric.hint }}</p>
+        </div>
+      </app-card>
+    }
+  </section>
+
+  <div class="grid gap-6 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+    <div class="cta-card">
+      <app-card padding="lg">
+        <div class="flex flex-col gap-5">
+          <span class="cta-card__icon" aria-hidden="true">
+            <app-icon name="code" [size]="22" [strokeWidth]="1.75" />
+          </span>
+
+          <div class="flex flex-col gap-2">
+            <h2 class="text-title font-semibold text-text">Analise um trecho de código</h2>
+            <p class="max-w-[56ch] text-body-sm text-muted">
+              Cole um arquivo Python ou escolha um arquivo de um repositório GitHub e receba um
+              score, os problemas priorizados e um resumo dos agentes — sem sair da página.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <app-button (click)="startAnalysis()">
+              <app-icon name="plus" [size]="16" />
+              Analisar código
+            </app-button>
+            <app-button variant="ghost" (click)="openHistory()">
+              <app-icon name="history" [size]="16" />
+              Ver histórico
+            </app-button>
+          </div>
+        </div>
+      </app-card>
+    </div>
+
+    <app-card padding="lg">
+      <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-heading font-semibold text-text">Como a análise funciona</h2>
+          <p class="text-caption text-muted">Três etapas, um único envio.</p>
+        </div>
+
+        <ol class="flex flex-col gap-4">
+          @for (step of steps; track step.title; let index = $index) {
+            <li class="flex items-start gap-3">
+              <span
+                class="mono-metric flex h-7 w-7 flex-none items-center justify-center rounded-sm border border-border bg-surface-raised text-caption text-accent"
+              >
+                {{ index + 1 }}
+              </span>
+              <div class="flex flex-col gap-1">
+                <p class="text-body-sm font-medium text-text">{{ step.title }}</p>
+                <p class="text-caption text-muted">{{ step.description }}</p>
+              </div>
+            </li>
+          }
+        </ol>
+      </div>
+    </app-card>
+  </div>
+
+  <section class="flex flex-col gap-4" aria-labelledby="recent-activity-title">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-col gap-1">
+        <h2 id="recent-activity-title" class="text-heading font-semibold text-text">
+          Atividade recente
+        </h2>
+        <p class="text-caption text-muted">As cinco análises mais recentes da sua conta.</p>
+      </div>
+
+      @if (auth.isAuthenticated()) {
+        <app-button
+          size="sm"
+          variant="secondary"
+          [loading]="loading()"
+          [disabled]="loading()"
+          (click)="refresh()"
+        >
+          <app-icon name="activity" [size]="14" />
+          Atualizar
+        </app-button>
+      }
+    </div>
+
+    @if (isVisitor()) {
+      <app-empty-state
+        icon="lock"
+        title="Entre para acompanhar sua atividade"
+        description="A análise manual e a de repositório continuam liberadas sem conta. O histórico e os indicadores ficam vinculados à sua sessão."
+      >
+        <app-button variant="secondary" (click)="prompts.open()">
+          <app-icon name="lock" [size]="15" />
+          Entrar
+        </app-button>
+        <app-button variant="ghost" (click)="startAnalysis()">
+          <app-icon name="plus" [size]="15" />
+          Analisar sem conta
+        </app-button>
+      </app-empty-state>
+    } @else if (loading()) {
+      <app-card padding="md">
+        <div class="flex flex-col gap-3" aria-busy="true">
+          <app-skeleton variant="text" [lines]="1" label="Carregando atividade recente" />
+          @for (line of [1, 2, 3]; track line) {
+            <app-skeleton variant="text" [lines]="1" label="" />
+          }
+        </div>
+      </app-card>
+    } @else if (hasError()) {
+      <app-error-state
+        title="Não foi possível carregar a atividade"
+        [description]="history.error() ?? 'Tente novamente em instantes.'"
+        (retry)="refresh()"
+      />
+    } @else if (isEmpty()) {
+      <app-empty-state
+        icon="history"
+        title="Nenhuma análise salva ainda"
+        description="Envie seu primeiro arquivo para começar a acompanhar score e problemas ao longo do tempo."
+      >
+        <app-button (click)="startAnalysis()">
+          <app-icon name="plus" [size]="15" />
+          Nova análise
+        </app-button>
+      </app-empty-state>
+    } @else if (hasItems()) {
+      <app-card padding="none">
+        <ul class="divide-y divide-border-soft">
+          @for (analysis of history.recent(); track analysis.id) {
+            <li>
+              <a
+                class="activity-row"
+                [routerLink]="['/history', analysis.id]"
+                [attr.aria-label]="'Abrir análise de ' + analysis.project_name"
+              >
+                <span class="activity-row__main">
+                  <span class="activity-row__title">{{ analysis.project_name }}</span>
+                  <span class="activity-row__meta">
+                    {{ originLabel(analysis) }} · {{ formatDate(analysis.created_at) }}
+                  </span>
+                </span>
+
+                <app-badge [tone]="statusTone(analysis)">{{ statusLabel(analysis) }}</app-badge>
+
+                <span class="activity-row__score">
+                  <span class="mono-metric">{{ scoreLabel(analysis) }}</span>
+                  <span class="text-caption text-muted">score</span>
+                </span>
+
+                <app-icon name="chevronRight" [size]="16" />
+              </a>
+            </li>
+          }
+        </ul>
+      </app-card>
+
+      @if (history.total() > history.recent().length) {
+        <div>
+          <app-button variant="ghost" size="sm" (click)="openHistory()">
+            Ver histórico completo
+            <app-icon name="arrowRight" [size]="14" />
+          </app-button>
+        </div>
+      }
+    }
+  </section>
+</div>

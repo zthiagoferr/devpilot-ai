@@ -34,192 +34,197 @@ jobs:
         id: pages
         uses: actions/configure-pages@v5
 
-      - name: Preparar e validar artefato estático
+      # O Angular 21 exige Node 20.19+, 22.12+ ou 24+. O cache npm usa o
+      # lockfile do frontend, a única árvore de dependências do build.
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `configure-pages` devolve "/" em user pages e "/<repo>" em project
+      # pages. O runtime config e o base href usam a forma sem barra final
+      # ("" ou "/devpilot-ai"). O config.js é gravado em public/ antes do
+      # build para ser copiado para dist/ como asset estático.
+      - name: Gerar config.js de runtime
         shell: bash
         env:
-          BASE_PATH: ${{ steps.pages.outputs.base_path }}
           API_BASE_URL: ${{ env.DEVPILOT_API_URL }}
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: |
           set -euo pipefail
 
-          source_dir=""
-          for candidate in frontend web public; do
-            if [[ -d "$candidate" ]] && find "$candidate" -type f -name '*.html' -print -quit | grep -q .; then
-              source_dir="$candidate"
-              break
-            fi
-          done
-
-          if [[ -z "$source_dir" && -d "app/templates" ]]; then
-            source_dir="app/templates"
+          base_path="${PAGES_BASE_PATH%/}"
+          if [[ "$base_path" == "/" || -z "$base_path" ]]; then
+            base_path=""
           fi
 
-          if [[ -z "$source_dir" ]]; then
-            echo "Nenhum frontend HTML encontrado em frontend/, web/, public/ ou app/templates/." >&2
-            exit 1
-          fi
+          node frontend/scripts/write-config.mjs \
+            --api-base-url "$API_BASE_URL" \
+            --base-path "$base_path" \
+            --out frontend/public/config.js
 
-          if [[ -f "$source_dir/package.json" ]]; then
-            if [[ -f "$source_dir/package-lock.json" ]]; then
-              npm --prefix "$source_dir" ci
-            else
-              npm --prefix "$source_dir" install
-            fi
-            npm --prefix "$source_dir" run build
+          # Compartilha o caminho normalizado com o build e as validações.
+          echo "BASE_PATH=$base_path" >> "$GITHUB_ENV"
 
-            if [[ -d "$source_dir/dist" ]]; then
-              source_dir="$source_dir/dist"
-            elif [[ -d "$source_dir/build" ]]; then
-              source_dir="$source_dir/build"
-            fi
-          fi
+      - name: Instalar dependências do frontend
+        working-directory: frontend
+        run: npm ci
 
-          rm -rf site
-          mkdir -p site
-          cp -a "$source_dir/." site/
-          if [[ "$source_dir" == "web" ]]; then
-            mkdir -p site/static
-            cp web/dashboard.css web/dashboard.js site/static/
-          fi
+      # `--base-href` precisa terminar em "/" para o browser resolver os
+      # assets relativos (main-*.js, styles-*.css, media/) no subpath.
+      - name: Build de produção
+        working-directory: frontend
+        shell: bash
+        run: npx ng build --configuration production --base-href "${BASE_PATH}/"
 
-          # O backend mantém templates e arquivos estáticos separados. No Pages,
-          # eles precisam formar uma única árvore pública e previsível.
-          if [[ "$source_dir" == "app/templates" && -d "app/static" ]]; then
-            mkdir -p site/static
-            cp -a app/static/. site/static/
-          fi
+      # O artefato é montado em $RUNNER_TEMP: o `./site` do checkout pode ser
+      # um mount local e nunca deve ser removido ou sobrescrito pelo workflow.
+      - name: Montar e validar artefato
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          if [[ ! -f site/index.html && -f site/dashboard.html ]]; then
-            cp site/dashboard.html site/index.html
-          fi
+          artifact_dir="${RUNNER_TEMP:?RUNNER_TEMP não definido}/site"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          cp -a frontend/dist/. "$artifact_dir/"
+          touch "$artifact_dir/.nojekyll"
 
-          if [[ ! -f site/index.html ]]; then
-            echo "O artefato precisa conter site/index.html ou dashboard.html." >&2
-            exit 1
-          fi
-
-          API_BASE_URL="${API_BASE_URL:-}" BASE_PATH="${BASE_PATH:-}" python - <<'PY'
-          import json
+          python - "$artifact_dir" <<'PY'
           import os
-          from pathlib import Path
-
-          api_url = os.environ.get("API_BASE_URL", "").strip()
-          base_path = os.environ.get("BASE_PATH", "").rstrip("/")
-          config = {
-              "apiBaseUrl": api_url,
-              "basePath": base_path,
-          }
-          Path("site/config.js").write_text(
-              "window.DevPilotConfig = "
-              + json.dumps(config, ensure_ascii=False, separators=(",", ":"))
-              + ";\n",
-              encoding="utf-8",
-          )
-          PY
-
-          python - <<'PY'
-          import posixpath
-          import re
-          from pathlib import Path
-
-          root = Path("site").resolve()
-          script_re = re.compile(r'(<script\b[^>]*\bsrc=["\'])([^"\']+)(["\'][^>]*>)', re.I)
-          link_re = re.compile(r'(<link\b[^>]*\bhref=["\'])([^"\']+)(["\'][^>]*>)', re.I)
-          config_re = re.compile(r'<script\b[^>]*\bsrc=["\'][^"\']*config\.js[^"\']*["\'][^>]*>\s*</script>', re.I)
-
-          def local_asset(value: str, html_path: Path) -> str:
-              if value.startswith(("http://", "https://", "//", "data:", "mailto:", "#")):
-                  return value
-              if value.startswith("/static/"):
-                  target = Path("static") / value.removeprefix("/static/")
-              elif value.startswith("/config.js"):
-                  target = Path("config.js")
-              else:
-                  return value
-              relative = posixpath.relpath(target.as_posix(), html_path.parent.relative_to(root).as_posix() or ".")
-              return "./" + relative if not relative.startswith(".") else relative
-
-          for html_path in root.rglob("*.html"):
-              text = html_path.read_text(encoding="utf-8")
-              text = script_re.sub(lambda match: match.group(1) + local_asset(match.group(2), html_path) + match.group(3), text)
-              text = link_re.sub(lambda match: match.group(1) + local_asset(match.group(2), html_path) + match.group(3), text)
-              text = config_re.sub("", text)
-
-              config_target = Path("config.js")
-              config_relative = posixpath.relpath(config_target.as_posix(), html_path.parent.relative_to(root).as_posix() or ".")
-              config_src = "./" + config_relative if not config_relative.startswith(".") else config_relative
-              config_tag = f'<script src="{config_src}"></script>'
-
-              application = re.search(r'<script\b[^>]*\bsrc=["\'][^"\']*(?:dashboard|app)[^"\']*\.js[^"\']*["\'][^>]*>\s*</script>', text, re.I)
-              if application:
-                  text = text[:application.start()] + config_tag + "\n    " + text[application.start():]
-              elif re.search(r'</body>', text, re.I):
-                  text = re.sub(r'</body>', f"    {config_tag}\n</body>", text, count=1, flags=re.I)
-              else:
-                  text = config_tag + "\n" + text
-
-              html_path.write_text(text, encoding="utf-8")
-          PY
-
-          python - <<'PY'
           import re
           import sys
           from pathlib import Path
 
-          site = Path("site")
-          required = (site / "index.html", site / "config.js", site / "static/dashboard.css", site / "static/dashboard.js")
-          missing = [str(path) for path in required if not path.is_file()]
-          if missing:
-              print("Arquivos obrigatórios ausentes: " + ", ".join(missing), file=sys.stderr)
-              sys.exit(1)
+          root = Path(sys.argv[1]).resolve()
+          problems = []
 
-          source_re = re.compile(r'<script\b[^>]*\bsrc=["\']([^"\']+)', re.I)
-          stylesheet_re = re.compile(r'<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref=["\']([^"\']+)', re.I)
-          for html in site.rglob("*.html"):
-              text = html.read_text(encoding="utf-8")
-              if text.find(chr(34) + "/static/") >= 0 or text.find(chr(39) + "/static/") >= 0:
-                  print(f"Caminho absoluto de asset encontrado em {html}", file=sys.stderr)
-                  sys.exit(1)
-              references = source_re.findall(text) + stylesheet_re.findall(text)
+          def require(condition, message):
+              if not condition:
+                  problems.append(message)
+
+          index_path = root / "index.html"
+          config_path = root / "config.js"
+
+          require(index_path.is_file(), "index.html ausente no artefato")
+          require(config_path.is_file(), "config.js ausente no artefato")
+          if config_path.is_file():
+              config_text = config_path.read_text(encoding="utf-8")
+              require("window.DevPilotConfig" in config_text, "config.js não define window.DevPilotConfig")
+              require("apiBaseUrl" in config_text, "config.js não contém apiBaseUrl")
+
+          main_assets = sorted(root.glob("main-*.js"))
+          style_assets = sorted(root.glob("styles-*.css"))
+          require(bool(main_assets), "nenhum main-*.js encontrado")
+          require(bool(style_assets), "nenhum styles-*.css encontrado")
+
+          if index_path.is_file():
+              html = index_path.read_text(encoding="utf-8")
+
+              # Scripts, folhas de estilo e modulepreload precisam ser locais:
+              # as fontes vêm do fontsource e não há CDN no bundle.
+              references = []
+              for tag in re.finditer(r'<(?:script|link)\b[^>]*>', html, re.I):
+                  references.extend(re.findall(r'\b(?:src|href)=["\']([^"\']+)["\']', tag.group(0), re.I))
+
               for reference in references:
-                  if reference.startswith(("http://", "https://", "//", "data:")):
+                  if re.match(r'^(?:https?:)?//', reference, re.I):
+                      problems.append(f"asset com URL absoluta no index.html: {reference}")
                       continue
-                  target = (html.parent / reference.split("?", 1)[0].split("#", 1)[0]).resolve()
-                  if not target.is_file():
-                      print(f"Asset referenciado por {html} não encontrado: {reference}", file=sys.stderr)
-                      sys.exit(1)
+                  clean = reference.split("?", 1)[0].split("#", 1)[0]
+                  if clean == "" or clean.startswith(("data:", "mailto:", "#")):
+                      continue
+                  if not (index_path.parent / clean).resolve().is_file():
+                      problems.append(f"asset referenciado não existe: {reference}")
 
-          html = (site / "index.html").read_text(encoding="utf-8")
-          config_position = html.find("config.js")
-          app_position = html.find("dashboard.js")
-          if config_position < 0 or app_position < 0 or config_position > app_position:
-              print("config.js deve ser carregado antes de dashboard.js.", file=sys.stderr)
+              config_tag = re.search(r'<script\b[^>]*\bsrc=["\'](?:\./)?config\.js["\']', html, re.I)
+              main_tag = re.search(r'<script\b[^>]*\bsrc=["\'](?:\./)?main-[^"\']+\.js["\']', html, re.I)
+              require(config_tag is not None, "index.html não carrega config.js")
+              require(main_tag is not None, "index.html não carrega o bundle main-*.js")
+              if config_tag is not None and main_tag is not None:
+                  require(
+                      config_tag.start() < main_tag.start(),
+                      "config.js deve ser carregado antes do bundle principal",
+                  )
+
+              base_tag = re.search(r'<base\b[^>]*\bhref=["\']([^"\']+)', html, re.I)
+              expected_base = (os.environ.get("BASE_PATH", "").rstrip("/") or "") + "/"
+              require(base_tag is not None, "index.html não define <base href>")
+              if base_tag is not None:
+                  require(
+                      base_tag.group(1) == expected_base,
+                      f"base href {base_tag.group(1)!r} diferente de {expected_base!r}",
+                  )
+
+          for css in style_assets:
+              if re.search(r'url\(\s*["\']?https?://', css.read_text(encoding="utf-8"), re.I):
+                  problems.append(f"CSS contém recurso remoto: {css.name}")
+
+          if problems:
+              for problem in problems:
+                  print(problem, file=sys.stderr)
               sys.exit(1)
-          print("Estrutura do Pages validada: index.html, config.js, CSS e JS disponíveis.")
-          PY
 
-          touch site/.nojekyll
+          print(
+              "Artefato validado: index.html, config.js, "
+              f"{len(main_assets)} main-*.js, {len(style_assets)} styles-*.css, "
+              "config.js antes do bundle e assets relativos."
+          )
+          PY
 
       - name: Testar publicação em subpath
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/devpilot-pages-smoke
-          mkdir -p /tmp/devpilot-pages-smoke/devpilot-ai
-          cp -a site/. /tmp/devpilot-pages-smoke/devpilot-ai/
-          python -m http.server 8765 --directory /tmp/devpilot-pages-smoke >/tmp/devpilot-pages-server.log 2>&1 &
+
+          smoke_root="${RUNNER_TEMP:?RUNNER_TEMP não definido}/pages-smoke"
+          smoke_prefix="${BASE_PATH:-/devpilot-ai}"
+          artifact_dir="${RUNNER_TEMP}/site"
+          smoke_dir="${smoke_root}${smoke_prefix}"
+          base_url="http://127.0.0.1:8765${smoke_prefix}"
+
+          rm -rf "$smoke_root"
+          mkdir -p "$smoke_dir"
+          cp -a "$artifact_dir/." "$smoke_dir/"
+
+          python -m http.server 8765 --directory "$smoke_root" >"$smoke_root/server.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           sleep 1
-          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/index.html >/dev/null
-          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/static/dashboard.css >/dev/null
-          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/static/dashboard.js >/dev/null
-          curl --fail --silent http://127.0.0.1:8765/devpilot-ai/config.js >/dev/null
+
+          curl --fail --silent --show-error "$base_url/index.html" -o "$smoke_root/fetched-index.html"
+          curl --fail --silent --show-error "$base_url/config.js" >/dev/null
+
+          main_asset="$(cd "$artifact_dir" && ls main-*.js | head -n 1)"
+          style_asset="$(cd "$artifact_dir" && ls styles-*.css | head -n 1)"
+          font_asset="$(cd "$artifact_dir" && ls media/*.woff2 | head -n 1)"
+
+          curl --fail --silent --show-error "$base_url/$main_asset" >/dev/null
+          curl --fail --silent --show-error "$base_url/$style_asset" >/dev/null
+          curl --fail --silent --show-error "$base_url/$font_asset" >/dev/null
+
+          python - "$smoke_root/fetched-index.html" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          html = Path(sys.argv[1]).read_text(encoding="utf-8")
+          config_tag = re.search(r'<script\b[^>]*\bsrc=["\'](?:\./)?config\.js["\']', html, re.I)
+          main_tag = re.search(r'<script\b[^>]*\bsrc=["\'](?:\./)?main-[^"\']+\.js["\']', html, re.I)
+          if config_tag is None or main_tag is None or config_tag.start() > main_tag.start():
+              print("config.js não é carregado antes do bundle no HTML servido.", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+          echo "Smoke em subpath OK: $base_url (index.html, config.js, $main_asset, $style_asset, $font_asset)."
 
       - name: Publicar artefato do Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          # O artifact continua com o mesmo formato; apenas a origem mudou.
+          path: ${{ runner.temp }}/site
 
   deploy:
     name: Publicar no GitHub Pages
