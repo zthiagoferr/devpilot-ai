@@ -4,6 +4,10 @@ English | [Português](README.pt-BR.md)
 
 A production-oriented, multi-agent platform for analyzing software projects, coordinating controlled development workflows, and exposing structured results through an API and local dashboard.
 
+## Project Purpose
+
+DevPilot AI helps developers analyze software repositories through specialized AI agents, providing structured insights into code quality, testing, documentation, and project architecture.
+
 ## Overview
 
 DevPilot combines specialized agents, explicit tools and skills, GitHub repository discovery, persistent analysis history, and a FastAPI application in one deterministic architecture. The system is designed around reviewed capabilities rather than arbitrary code or shell execution.
