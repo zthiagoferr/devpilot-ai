@@ -13,16 +13,32 @@ from app.api.agents import router as agents_router
 from app.api.analysis import router as analysis_router
 from app.api.dashboard import router as dashboard_router
 from app.core.config import get_settings
+from app.core.logging import install_sqlalchemy_parameter_redaction
 from app.core.rate_limit import InMemoryRateLimiter, RateLimitMiddleware
 from app.db import session
+
+logger = logging.getLogger("devpilot")
 
 try:
     from app.api.github import router as github_router
 except ModuleNotFoundError:
     github_router = None
+    logger.warning(
+        "GitHub routes are unavailable because an optional dependency is "
+        "missing; the application will start without them.",
+        exc_info=True,
+    )
 
+try:
+    from app.api.corrections import router as corrections_router
+except ModuleNotFoundError:
+    corrections_router = None
+    logger.warning(
+        "Correction routes are unavailable because an optional dependency is "
+        "missing; the application will start without them.",
+        exc_info=True,
+    )
 
-logger = logging.getLogger("devpilot")
 
 # Upper bound, in seconds, for the readiness database probe. Kept short so an
 # unreachable database fails ``/ready`` quickly without hanging the request.
@@ -42,6 +58,10 @@ def _configure_logging() -> int:
         format="%(asctime)s %(levelname)-5.5s [%(name)s] %(message)s",
     )
     logging.getLogger().setLevel(level)
+    # SQLAlchemy can render bound parameters (analyzed user code) in its log
+    # records. Install the redaction after the handlers exist so both direct
+    # SQLAlchemy logs and records propagated to the root handlers are covered.
+    install_sqlalchemy_parameter_redaction()
     return level
 
 
@@ -59,6 +79,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await session.dispose_engine()
 
 
+# Install the redaction at import time too: handlers can exist before the
+# lifespan runs (uvicorn configures logging before importing the app), and the
+# application must stay protected with ``--lifespan off`` or when a TestClient
+# is used without a context manager. The lifespan re-installs it to cover
+# handlers created later.
+install_sqlalchemy_parameter_redaction()
+
+
 app = FastAPI(
     title="DevPilot AI",
     description="Multi-Agent Code Intelligence Platform",
@@ -72,6 +100,9 @@ app.include_router(dashboard_router)
 
 if github_router is not None:
     app.include_router(github_router)
+
+if corrections_router is not None:
+    app.include_router(corrections_router)
 
 
 # Rate limiting is applied first so CORS (added below) stays the outermost

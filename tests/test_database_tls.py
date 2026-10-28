@@ -87,3 +87,4 @@ def test_get_engine_forwards_translated_ssl_connect_args(monkeypatch) -> None:
 
     assert captured["url"] == "postgresql+asyncpg://user:pass@ep-x.neon.tech/db"
     assert captured["kwargs"]["connect_args"] == {"ssl": "require"}  # type: ignore[index]
+    assert captured["kwargs"]["echo"] is False  # type: ignore[index]

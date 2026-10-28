@@ -12,7 +12,9 @@ import { Router } from '@angular/router';
 import { ApiClient, isAbortError } from '../../../core/api/api-client';
 import { analysisSuccessMessage } from '../../../core/api/analysis-summary';
 import { isApiError } from '../../../core/api/api-error.mapper';
-import { Analysis } from '../../../core/api/api.types';
+import { Analysis, AnalysisLanguage } from '../../../core/api/api.types';
+import { AuthService } from '../../../core/auth/auth.service';
+import { LoginPromptService } from '../../../core/auth/login-prompt.service';
 import { RepositoryStore } from '../../../core/repositories/repository-store';
 import { BadgeComponent } from '../../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
@@ -23,9 +25,13 @@ import {
   InlineStatusTone,
 } from '../../../shared/components/inline-status/inline-status.component';
 import { InputComponent } from '../../../shared/components/input/input.component';
+import { IssueListComponent } from '../../../shared/components/issue-list/issue-list.component';
+import { LanguageSelectComponent } from '../../../shared/components/language-select/language-select.component';
+import { languageLabel } from '../../../shared/components/language-select/language-options';
 import { ScoreRingComponent } from '../../../shared/components/score-ring/score-ring.component';
 import { TabItem, TabsComponent } from '../../../shared/components/tabs/tabs.component';
 import { TextareaComponent } from '../../../shared/components/textarea/textarea.component';
+import { analysisSummaryPtBr } from '../../../shared/utils/pt-br-messages';
 import { RepositoryAnalysisComponent } from './repository-analysis.component';
 
 const MAX_SOURCE_BYTES = 1_000_000;
@@ -50,6 +56,8 @@ const TABS: readonly TabItem[] = [
     IconComponent,
     InlineStatusComponent,
     InputComponent,
+    IssueListComponent,
+    LanguageSelectComponent,
     ScoreRingComponent,
     TabsComponent,
     TextareaComponent,
@@ -64,20 +72,55 @@ export class AnalysisNewComponent {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly account = inject(AuthService);
+  protected readonly login = inject(LoginPromptService);
 
   protected readonly tabs = TABS;
   protected readonly activeTab = signal('paste');
 
   protected readonly projectName = signal('');
   protected readonly sourceCode = signal('');
+  protected readonly language = signal<AnalysisLanguage>('auto');
+  protected readonly protheusVersion = signal('');
   protected readonly projectNameTouched = signal(false);
   protected readonly submitted = signal(false);
   protected readonly loading = signal(false);
   protected readonly fieldErrors = signal<Readonly<Record<string, string>>>({});
   protected readonly status = signal<FormStatus | null>(null);
-  protected readonly result = signal<Analysis | null>(null);
+
+  // Each tab keeps its own result. Switching tabs only changes which result is
+  // visible; it never reuses (or leaks) the result of the other mode and never
+  // issues a new API call.
+  private readonly pasteResult = signal<Analysis | null>(null);
+  private readonly repositoryResult = signal<Analysis | null>(null);
+  protected readonly result = computed<Analysis | null>(() =>
+    this.activeTab() === 'repository' ? this.repositoryResult() : this.pasteResult(),
+  );
+
+  protected readonly authenticated = computed(() => this.account.isAuthenticated());
 
   protected readonly sourceBytes = computed(() => byteLength(this.sourceCode()));
+
+  protected readonly languageHint = computed(() => {
+    const language = this.language();
+    return language === 'auto'
+      ? 'Detecção automática · até 1 MB'
+      : `${languageLabel(language)} · até 1 MB`;
+  });
+
+  protected readonly resultLanguageLabel = computed(() => {
+    const language = this.result()?.result?.language;
+    return language === undefined || language === null || language === ''
+      ? null
+      : languageLabel(language);
+  });
+
+  protected readonly resultConfidence = computed(() => {
+    const confidence = this.result()?.result?.confidence;
+    return typeof confidence === 'number' && Number.isFinite(confidence)
+      ? `${Math.round(confidence * 100)}% de confiança`
+      : null;
+  });
 
   protected readonly projectNameError = computed(() => {
     const server = this.fieldErrors()['project_name'];
@@ -110,8 +153,16 @@ export class AnalysisNewComponent {
 
   protected readonly resultIssues = computed(() => this.result()?.result?.issues ?? []);
   protected readonly resultSummary = computed(() => {
-    const summary = this.result()?.result?.summary?.trim();
-    return summary === undefined || summary === '' ? null : summary;
+    const analysis = this.result();
+    if (analysis === null) {
+      return null;
+    }
+    return analysisSummaryPtBr({
+      summary: analysis.result?.summary,
+      score: analysis.result?.score,
+      issueCount: this.resultIssues().length,
+      status: analysis.status,
+    });
   });
 
   protected readonly evaluationItems = [
@@ -152,7 +203,7 @@ export class AnalysisNewComponent {
     }
 
     this.loading.set(true);
-    this.result.set(null);
+    this.pasteResult.set(null);
     this.status.set({
       tone: 'loading',
       message: 'Analisando com os agentes. Isso pode levar alguns segundos.',
@@ -163,16 +214,20 @@ export class AnalysisNewComponent {
     this.controller = controller;
 
     try {
+      const language = this.language();
+      const protheusVersion = language === 'advpl' ? this.protheusVersion().trim() : '';
       const analysis = await this.api.createAnalysis(
         {
           task: 'code_analysis',
           project_name: this.projectName().trim(),
           source_code: this.sourceCode(),
+          language,
+          ...(protheusVersion === '' ? {} : { protheus_version: protheusVersion }),
         },
         controller.signal,
       );
 
-      this.result.set(analysis);
+      this.pasteResult.set(analysis);
       this.status.set({
         tone: analysis.status === 'completed' ? 'success' : 'warning',
         message: analysisSuccessMessage(analysis),
@@ -211,11 +266,37 @@ export class AnalysisNewComponent {
     this.loading.set(false);
     this.projectName.set('');
     this.sourceCode.set('');
+    this.language.set('auto');
+    this.protheusVersion.set('');
     this.projectNameTouched.set(false);
     this.submitted.set(false);
     this.fieldErrors.set({});
     this.status.set(null);
-    this.result.set(null);
+    this.pasteResult.set(null);
+  }
+
+  protected updateLanguage(value: AnalysisLanguage): void {
+    this.language.set(value);
+    if (value !== 'advpl') {
+      this.protheusVersion.set('');
+    }
+  }
+
+  protected updateProtheusVersion(value: string): void {
+    this.protheusVersion.set(value);
+  }
+
+  protected openLogin(): void {
+    if (this.login.open() === false) {
+      const notice = this.login.notice();
+      if (notice !== '') {
+        this.status.set({ tone: 'warning', message: notice });
+      }
+    }
+  }
+
+  protected handleDecided(): void {
+    this.status.set({ tone: 'success', message: 'Decisão registrada para a correção.' });
   }
 
   protected openDetail(id: string): void {
@@ -223,7 +304,11 @@ export class AnalysisNewComponent {
   }
 
   protected handleRepositoryResult(analysis: Analysis): void {
-    this.result.set(analysis);
+    this.repositoryResult.set(analysis);
+  }
+
+  protected clearRepositoryResult(): void {
+    this.repositoryResult.set(null);
   }
 
   private isVisible(

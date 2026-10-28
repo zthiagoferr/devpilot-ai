@@ -11,8 +11,19 @@ import {
 import { ApiClient, isAbortError } from '../../../core/api/api-client';
 import { analysisSuccessMessage } from '../../../core/api/analysis-summary';
 import { isApiError } from '../../../core/api/api-error.mapper';
-import { Analysis } from '../../../core/api/api.types';
-import { RepositoryStore } from '../../../core/repositories/repository-store';
+import {
+  Analysis,
+  AnalysisLanguage,
+  RepositoryContext,
+  RepositoryFile,
+} from '../../../core/api/api.types';
+import {
+  RepositoryStore,
+  formatBytes,
+  languageName,
+} from '../../../core/repositories/repository-store';
+import { repositoryEmptyMessagePtBr } from '../../../shared/utils/pt-br-messages';
+import { BadgeComponent } from '../../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import {
@@ -20,6 +31,7 @@ import {
   InlineStatusTone,
 } from '../../../shared/components/inline-status/inline-status.component';
 import { InputComponent } from '../../../shared/components/input/input.component';
+import { LanguageSelectComponent } from '../../../shared/components/language-select/language-select.component';
 import { SelectComponent } from '../../../shared/components/select/select.component';
 
 interface FormStatus {
@@ -30,21 +42,35 @@ interface FormStatus {
 const MAX_PROJECT_NAME = 120;
 
 /**
- * GitHub repository tab: load the analyzable Python files of a public
- * repository, pick one and submit it to `POST /analyses` with its origin.
+ * GitHub repository tab: load the analyzable files of a public repository,
+ * filter them by language, pick one and submit it to `POST /analyses` with its
+ * origin and the deterministic repository context.
  *
- * A load failure (or a new load) clears the previous selection, so a file from
- * one repository can never be submitted together with another repository URL.
+ * A load failure (or a new load/language change) clears the previous
+ * selection, so a file from one repository can never be submitted together
+ * with another repository URL.
  */
 @Component({
   selector: 'app-repository-analysis',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, IconComponent, InlineStatusComponent, InputComponent, SelectComponent],
+  imports: [
+    BadgeComponent,
+    ButtonComponent,
+    IconComponent,
+    InlineStatusComponent,
+    InputComponent,
+    LanguageSelectComponent,
+    SelectComponent,
+  ],
   templateUrl: './repository-analysis.component.html',
   styleUrl: './repository-analysis.component.css',
 })
 export class RepositoryAnalysisComponent {
   readonly analyzed = output<Analysis>();
+  /** Emitted when a new analysis starts, before the API call resolves. */
+  readonly started = output<void>();
+  /** Emitted when the form is cleared, so the shell can drop its result. */
+  readonly cleared = output<void>();
 
   private readonly api = inject(ApiClient);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -53,6 +79,8 @@ export class RepositoryAnalysisComponent {
   protected readonly projectName = signal('');
   protected readonly repositoryUrl = signal('');
   protected readonly branch = signal('');
+  protected readonly language = signal<AnalysisLanguage>('auto');
+  protected readonly protheusVersion = signal('');
   protected readonly submitted = signal(false);
   protected readonly submitting = signal(false);
   protected readonly submitStatus = signal<FormStatus | null>(null);
@@ -69,9 +97,7 @@ export class RepositoryAnalysisComponent {
       case 'empty':
         return {
           tone: 'warning',
-          message:
-            this.store.message() ??
-            'Nenhum arquivo Python elegível foi encontrado neste repositório.',
+          message: repositoryEmptyMessagePtBr(this.store.message()),
         };
       case 'ready': {
         const count = this.store.files().length;
@@ -90,6 +116,35 @@ export class RepositoryAnalysisComponent {
   );
 
   protected readonly fileCount = computed(() => this.store.files().length);
+
+  /**
+   * Exact `repository_context` sent with the analysis: the files already
+   * loaded (with source and detected language) plus the tree metadata.
+   */
+  protected readonly repositoryContext = computed<RepositoryContext | null>(() => {
+    if (this.store.state() !== 'ready') {
+      return null;
+    }
+    const files = this.store
+      .files()
+      .filter((file) => (file.source_code ?? '').trim() !== '')
+      .map((file) => ({
+        path: file.path,
+        source_code: file.source_code ?? '',
+        ...(file.language ? { language: file.language } : {}),
+      }));
+    if (files.length === 0) {
+      return null;
+    }
+    return {
+      files,
+      paths: [...this.store.paths()],
+      tree_complete: this.store.treeComplete(),
+      truncated: this.store.truncated(),
+    };
+  });
+
+  protected readonly contextFileCount = computed(() => this.repositoryContext()?.files.length ?? 0);
 
   protected readonly projectNameError = computed(() => {
     if (!this.submitted()) {
@@ -125,7 +180,7 @@ export class RepositoryAnalysisComponent {
   protected readonly selectPlaceholder = computed(() => {
     switch (this.store.state()) {
       case 'empty':
-        return 'Nenhum arquivo Python encontrado neste repositório';
+        return 'Nenhum arquivo elegível encontrado neste repositório';
       case 'ready':
         return 'Selecione um arquivo';
       case 'loading':
@@ -145,10 +200,30 @@ export class RepositoryAnalysisComponent {
     this.clearLoadedFiles();
   }
 
+  protected updateLanguage(value: AnalysisLanguage): void {
+    this.language.set(value);
+    if (value !== 'advpl') {
+      this.protheusVersion.set('');
+    }
+    this.clearLoadedFiles();
+  }
+
+  protected updateProtheusVersion(value: string): void {
+    this.protheusVersion.set(value);
+  }
+
+  protected fileLanguage(file: RepositoryFile): string {
+    return languageName((file.language ?? '').trim().toLowerCase());
+  }
+
+  protected fileSize(file: RepositoryFile): string {
+    return typeof file.size === 'number' ? formatBytes(file.size) : '';
+  }
+
   protected async loadFiles(): Promise<void> {
     this.submitted.set(false);
     this.submitStatus.set(null);
-    await this.store.load(this.repositoryUrl(), this.branch());
+    await this.store.load(this.repositoryUrl(), this.branch(), this.language());
   }
 
   protected async submit(event: Event): Promise<void> {
@@ -181,12 +256,16 @@ export class RepositoryAnalysisComponent {
     }
 
     this.submitting.set(true);
+    this.started.emit();
     this.submitStatus.set({
       tone: 'loading',
       message: 'Analisando o arquivo selecionado. Isso pode levar alguns segundos.',
     });
 
     const branchName = this.branch().trim();
+    const language = this.language();
+    const protheusVersion = language === 'advpl' ? this.protheusVersion().trim() : '';
+    const context = this.repositoryContext();
     try {
       const analysis = await this.api.createAnalysis({
         task: 'code',
@@ -194,7 +273,10 @@ export class RepositoryAnalysisComponent {
         source_code: source,
         repository_url: this.repositoryUrl().trim(),
         file_path: file.path,
+        language,
         ...(branchName === '' ? {} : { branch: branchName }),
+        ...(protheusVersion === '' ? {} : { protheus_version: protheusVersion }),
+        ...(context === null ? {} : { repository_context: context }),
       });
 
       this.analyzed.emit(analysis);
@@ -221,9 +303,12 @@ export class RepositoryAnalysisComponent {
     this.projectName.set('');
     this.repositoryUrl.set('');
     this.branch.set('');
+    this.language.set('auto');
+    this.protheusVersion.set('');
     this.submitted.set(false);
     this.submitStatus.set(null);
     this.store.clear();
+    this.cleared.emit();
   }
 
   private clearLoadedFiles(): void {

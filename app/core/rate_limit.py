@@ -28,8 +28,42 @@ PROTECTED_PATHS: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/analyses"),
         ("POST", "/repositories/load"),
+        ("POST", "/corrections"),
     }
 )
+
+#: Path that uses the dedicated correction limits. Kept as a constant so the
+#: middleware stays a pure function of the settings object.
+CORRECTION_PATH = "/corrections"
+
+
+def _rate_limit_for(settings: Any, path: str) -> tuple[int, float]:
+    """Return ``(limit, window)`` for ``path``.
+
+    ``/corrections`` uses its own settings with a fallback to the shared
+    ``rate_limit_*`` values, so existing callers (and tests) that provide only
+    those attributes keep working.
+    """
+    if path == CORRECTION_PATH:
+        raw_limit = getattr(settings, "correction_rate_limit_requests", None)
+        if raw_limit is None:
+            raw_limit = getattr(settings, "rate_limit_requests", 0)
+        raw_window = getattr(settings, "correction_rate_limit_window_seconds", None)
+        if raw_window is None:
+            raw_window = getattr(settings, "rate_limit_window_seconds", 0.0)
+    else:
+        raw_limit = getattr(settings, "rate_limit_requests", 0)
+        raw_window = getattr(settings, "rate_limit_window_seconds", 0.0)
+
+    try:
+        limit = int(raw_limit or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    try:
+        window = float(raw_window or 0.0)
+    except (TypeError, ValueError):
+        window = 0.0
+    return limit, window
 
 
 class InMemoryRateLimiter:
@@ -141,12 +175,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         settings = self._settings_getter()
-        limit = int(getattr(settings, "rate_limit_requests", 0) or 0)
+        limit, window = _rate_limit_for(settings, key_path)
         if limit <= 0:
             # A non-positive limit disables throttling entirely.
             return await call_next(request)
 
-        window = float(getattr(settings, "rate_limit_window_seconds", 0.0) or 0.0)
         client = resolve_client_identifier(
             request,
             trust_proxy_headers=bool(

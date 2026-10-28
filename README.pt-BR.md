@@ -198,6 +198,39 @@ $env:DATABASE_URL = "sqlite+aiosqlite:///./devpilot.db"
 
 Não coloque credenciais no código, no dashboard ou em arquivos públicos. Use os valores definidos pelo ambiente de execução.
 
+### CORS e origens do frontend
+
+`FRONTEND_ORIGINS` é uma lista separada por vírgulas de **origens exatas** (esquema + host + porta), como `http://localhost:4200`. Não use `*`: o middleware só responde com `Access-Control-Allow-Origin` para as origens listadas e não habilita credenciais. A lista é controlada pelo ambiente de execução (por exemplo a variável configurada no Render), nunca pelo código do frontend.
+
+Para desenvolvimento local, suba a API já com a origem do `ng serve`:
+
+```bash
+FRONTEND_ORIGINS=http://localhost:4200 uvicorn app.main:app --reload
+```
+
+Em outro terminal, inicie o frontend:
+
+```bash
+cd frontend
+npm start
+```
+
+Em produção, configure a origem exata do GitHub Pages (por exemplo `https://<usuario>.github.io`, sem caminho) no ambiente da API e siga o [DEPLOY.md](DEPLOY.md). Uma URL com caminho, como `https://<usuario>.github.io/devpilot-ai`, não é uma origem válida para CORS.
+
+### Variáveis de ambiente principais
+
+O arquivo [.env.example](.env.example) lista todas as variáveis com comentários curtos. As mais relevantes:
+
+- `DATABASE_URL`: SQLite local ou PostgreSQL/Neon em produção.
+- `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`: provedor usado pela correção com IA.
+- `GITHUB_TOKEN`, `GITHUB_API_BASE_URL`, `GITHUB_MAX_FILES`, `GITHUB_MAX_FILE_BYTES`, `GITHUB_MAX_TOTAL_BYTES`, `GITHUB_MAX_TREE_PATHS`, `GITHUB_APPS_JSON_MAX_BYTES`, `GITHUB_LOAD_TOTAL_SECONDS`: carregamento de repositórios.
+- `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, `TRUST_PROXY_HEADERS`: limite por IP e confiança em proxy reverso.
+- `CORRECTION_MAX_SOURCE_BYTES`, `CORRECTION_MAX_CORRECTED_BYTES`, `CORRECTION_MAX_EXPLANATION_BYTES`, `CORRECTION_RATE_LIMIT_REQUESTS`, `CORRECTION_RATE_LIMIT_WINDOW_SECONDS`, `CORRECTION_FAKE_PROVIDER_ENABLED`: limites da correção com IA.
+- `ADVPL_OFFICIAL_VALIDATION_ENABLED`: mantém a validação ADVPL heurística por padrão.
+- `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON`: autenticação opcional; sem elas as rotas autenticadas respondem `401`.
+
+Nunca versione valores reais; para produção, use os segredos gerenciados pela plataforma e consulte o [DEPLOY.md](DEPLOY.md).
+
 ## Execução local
 
 Aplique as migrações antes de usar a persistência:

@@ -27,6 +27,137 @@
   gap: 12px;
 }
 
+.repo-form__relations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-form__files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.repo-form__files-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.repo-form__files-title {
+  color: #a3a3a3;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.repo-form__file-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #262626;
+  border-radius: var(--radius-md);
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.repo-form__file-list > li + li {
+  border-block-start: 1px solid #1f1f1f;
+}
+
+.file-row {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #fafafa;
+  font-size: var(--text-body-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.file-row:hover {
+  background-color: #1a1a1a;
+}
+
+.file-row:focus-visible {
+  outline: 2px solid #fafafa;
+  outline-offset: -2px;
+}
+
+.file-row.is-selected {
+  background-color: #1f1f1f;
+  box-shadow: inset 3px 0 0 #fafafa;
+}
+
+.file-row__path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-row__meta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-form__context {
+  border: 1px solid #262626;
+  border-radius: var(--radius-md);
+  background-color: #080808;
+}
+
+.repo-form__context-summary {
+  padding: 12px 14px;
+  color: #a3a3a3;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+
+.repo-form__context-summary:focus-visible {
+  outline: 2px solid #fafafa;
+  outline-offset: 2px;
+}
+
+.repo-form__context-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.repo-form__context-paths {
+  display: flex;
+  max-height: 200px;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
+  border: 1px solid #1f1f1f;
+  border-radius: var(--radius-sm);
+  color: #8a8a8a;
+  font-size: var(--text-caption);
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
 @media (min-width: 768px) {
   .repo-form__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

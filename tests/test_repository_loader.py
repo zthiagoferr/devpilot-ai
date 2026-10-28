@@ -87,7 +87,8 @@ DEFAULT_LIMITS = {
         ("types.pyi", True),
         ("README.md", False),
         ("config.json", False),
-        ("script.js", False),
+        # Deliberate change: JavaScript is now an analyzable language.
+        ("script.js", True),
         ("Makefile", False),
         ("src/.env", False),
         ("app/.env.local", False),

@@ -1,0 +1,216 @@
+"""Tests for the language-aware analysis agents."""
+
+from __future__ import annotations
+
+import pytest
+
+from app.agents.language_agent import LanguageCodeAgent, LanguageReportAgent
+from app.languages.base import Detection
+
+LANGUAGE_SAMPLES = [
+    (
+        "python",
+        "def broken(:\n    pass\n",
+        "sample.py",
+        "python_syntax",
+        0.99,
+    ),
+    (
+        "advpl",
+        '#Include "totvs.ch"\nUser Function X()\nLocal a := 1\nReturn a\n',
+        "sample.prw",
+        "include_unresolved",
+        0.99,
+    ),
+    (
+        "html",
+        "<html><body><div></body></html>",
+        "index.html",
+        "unclosed_tag",
+        0.99,
+    ),
+    (
+        "css",
+        "body { color: red; ",
+        "style.css",
+        "unbalanced_braces",
+        0.99,
+    ),
+    (
+        "javascript",
+        "const value = ;\n",
+        "app.js",
+        "empty_assignment",
+        0.95,
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("language", "source", "path", "cause", "confidence"), LANGUAGE_SAMPLES
+)
+async def test_language_code_agent_contract(
+    language: str,
+    source: str,
+    path: str,
+    cause: str,
+    confidence: float,
+) -> None:
+    result = await LanguageCodeAgent().execute(
+        {
+            "project_name": "sample",
+            "source_code": source,
+            "file_path": path,
+        }
+    )
+
+    assert result["agent"] == "language_agent"
+    assert result["project_name"] == "sample"
+    assert result["language"] == language
+    assert result["language_source"] == "extension"
+    assert result["confidence"] == confidence
+    assert isinstance(result["score"], int)
+    assert 0 <= result["score"] <= 100
+    assert isinstance(result["issues"], list)
+    assert isinstance(result["summary"], str) and result["summary"]
+    assert isinstance(result["validator"], dict)
+    assert result["validator"]["name"]
+
+    assert result["issues"], language
+    issue = result["issues"][0]
+    assert set(issue) == {
+        "severity",
+        "message",
+        "cause",
+        "file",
+        "line",
+        "column",
+        "language",
+        "origin",
+        "analysis_kind",
+        "code",
+        "rule_id",
+    }
+    assert issue["language"] == language
+    assert issue["file"] == path
+    assert issue["origin"] == "validator"
+    assert issue["analysis_kind"] == "heuristic_validation"
+    assert any(item["cause"] == cause for item in result["issues"]), result["issues"]
+
+
+@pytest.mark.asyncio
+async def test_language_code_agent_uses_content_detection_without_path() -> None:
+    result = await LanguageCodeAgent().execute(
+        {
+            "project_name": "sample",
+            "source_code": "const value = ;\n",
+        }
+    )
+
+    assert result["language"] == "javascript"
+    assert result["language_source"] == "content"
+    assert 0.0 < result["confidence"] < 1.0
+    assert any(issue["cause"] == "empty_assignment" for issue in result["issues"])
+
+
+@pytest.mark.asyncio
+async def test_language_code_agent_honors_a_supplied_manual_detection() -> None:
+    detection = Detection(
+        language="javascript",
+        source="manual",
+        confidence=1.0,
+        reason="manual_request",
+        candidates=(("javascript", 1.0),),
+    )
+
+    result = await LanguageCodeAgent().execute(
+        {
+            "project_name": "sample",
+            "source_code": "const value = ;\n",
+            "detection": detection,
+        }
+    )
+
+    assert result["language"] == "javascript"
+    assert result["language_source"] == "manual"
+    assert result["confidence"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_language_code_agent_reports_unknown_language() -> None:
+    result = await LanguageCodeAgent().execute(
+        {
+            "project_name": "sample",
+            "source_code": "lorem ipsum dolor sit amet",
+        }
+    )
+
+    assert result["language"] == "unknown"
+    assert result["validator"] is None
+    assert result["issues"][0]["severity"] == "info"
+    assert result["issues"][0]["cause"] == "language_undetected"
+
+
+@pytest.mark.asyncio
+async def test_language_code_agent_echoes_requested_task() -> None:
+    result = await LanguageCodeAgent().execute(
+        {
+            "project_name": "sample",
+            "source_code": "const value = ;\n",
+            "file_path": "app.js",
+            "requested_task": "tests",
+        }
+    )
+
+    assert result["requested_task"] == "tests"
+
+
+@pytest.mark.asyncio
+async def test_language_report_agent_matches_the_report_contract() -> None:
+    result = await LanguageReportAgent().execute(
+        {
+            "project_name": "sample",
+            "source_code": "const value = ;\n",
+            "file_path": "app.js",
+        }
+    )
+
+    assert result["agent"] == "language_report_agent"
+    assert result["project_name"] == "sample"
+    assert result["overall_score"] == 90
+    assert result["total_issues"] == 1
+    assert result["requested_task"] == "full_analysis"
+    assert isinstance(result["summary"], str)
+    assert "90/100" in result["summary"]
+
+    analyses = result["analyses"]
+    assert list(analyses) == ["javascript"]
+    analysis = analyses["javascript"]
+    assert set(analysis) == {"agent", "score", "issues", "summary", "language"}
+    assert analysis["agent"] == "language_agent"
+    assert analysis["score"] == 90
+    assert analysis["language"] == "javascript"
+    assert analysis["issues"][0]["cause"] == "empty_assignment"
+
+    language = result["language"]
+    assert language["language"] == "javascript"
+    assert language["source"] == "extension"
+    assert language["confidence"] == 0.95
+    assert language["reason"]
+    assert language["candidates"] == [["javascript", 0.95]]
+
+
+@pytest.mark.asyncio
+async def test_language_report_agent_without_issues_reports_full_score() -> None:
+    result = await LanguageReportAgent().execute(
+        {
+            "project_name": "clean",
+            "source_code": "const value = 1;\n",
+            "file_path": "app.js",
+        }
+    )
+
+    assert result["overall_score"] == 100
+    assert result["total_issues"] == 0
+    assert result["analyses"]["javascript"]["issues"] == []

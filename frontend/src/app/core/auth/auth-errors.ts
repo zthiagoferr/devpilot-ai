@@ -35,6 +35,17 @@ export const AUTH_ERROR_MESSAGES: Readonly<Record<string, string>> = {
 export const AUTH_UNAVAILABLE_MESSAGE =
   'A autenticação não está configurada neste ambiente. Você pode analisar seu código sem entrar.';
 
+export const LOGIN_UNAVAILABLE_MESSAGE =
+  'Login não disponível: a autenticação não está configurada neste ambiente. Você pode analisar código sem conta.';
+
+/** SDK bootstrap failed (invalid key, network, missing provider). */
+export const LOGIN_AUTH_ERROR_MESSAGE =
+  'Login indisponível: não foi possível inicializar a autenticação neste ambiente. Você pode analisar código sem conta.';
+
+/** The SDK is still loading; opening the dialog now would offer a dead form. */
+export const LOGIN_INITIALIZING_MESSAGE =
+  'A autenticação ainda está inicializando. Tente novamente em instantes ou analise seu código sem conta.';
+
 export const AUTH_GENERIC_MESSAGE = 'Não foi possível concluir a operação. Tente novamente.';
 
 export interface AuthLikeError {

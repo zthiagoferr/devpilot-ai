@@ -19,9 +19,12 @@ import { ButtonComponent } from '../../../shared/components/button/button.compon
 import { CardComponent } from '../../../shared/components/card/card.component';
 import { ErrorStateComponent } from '../../../shared/components/error-state/error-state.component';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
+import { IssueListComponent } from '../../../shared/components/issue-list/issue-list.component';
+import { languageLabel } from '../../../shared/components/language-select/language-options';
 import { ScoreRingComponent } from '../../../shared/components/score-ring/score-ring.component';
 import { SkeletonComponent } from '../../../shared/components/skeleton/skeleton.component';
 import { SourceViewerComponent } from '../../../shared/components/source-viewer/source-viewer.component';
+import { analysisSummaryPtBr } from '../../../shared/utils/pt-br-messages';
 
 type LoadState = 'loading' | 'ready' | 'unauthorized' | 'error';
 
@@ -50,26 +53,6 @@ const TASK_LABELS: Readonly<Record<string, string>> = {
   docs: 'Análise de documentação',
 };
 
-const SEVERITY_LABELS: Readonly<Record<string, string>> = {
-  critical: 'Crítica',
-  high: 'Alta',
-  error: 'Alta',
-  medium: 'Média',
-  warning: 'Média',
-  low: 'Baixa',
-  info: 'Informativa',
-};
-
-const SEVERITY_RANK: Readonly<Record<string, number>> = {
-  critical: 0,
-  high: 1,
-  error: 1,
-  medium: 2,
-  warning: 2,
-  low: 3,
-  info: 4,
-};
-
 @Component({
   selector: 'app-analysis-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -80,6 +63,7 @@ const SEVERITY_RANK: Readonly<Record<string, number>> = {
     CardComponent,
     ErrorStateComponent,
     IconComponent,
+    IssueListComponent,
     ScoreRingComponent,
     SkeletonComponent,
     SourceViewerComponent,
@@ -115,19 +99,35 @@ export class AnalysisDetailComponent {
   protected readonly score = computed(() => this.analysis()?.result?.score ?? null);
 
   protected readonly summary = computed(() => {
-    const value = this.analysis()?.result?.summary?.trim();
-    return value === undefined || value === ''
-      ? 'Os agentes não retornaram um resumo para esta análise.'
-      : value;
+    const analysis = this.analysis();
+    const result = analysis?.result;
+    return analysisSummaryPtBr({
+      summary: result?.summary,
+      score: result?.score,
+      issueCount: result?.issues?.length ?? 0,
+      status: analysis?.status,
+    });
   });
 
   protected readonly issues = computed<readonly AnalysisIssue[]>(
     () => this.analysis()?.result?.issues ?? [],
   );
 
-  protected readonly sortedIssues = computed(() =>
-    [...this.issues()].sort((left, right) => this.severityRank(left) - this.severityRank(right)),
-  );
+  protected readonly analyzedLanguage = computed(() => this.analysis()?.result?.language ?? null);
+
+  protected readonly analyzedLanguageLabel = computed(() => {
+    const language = this.analyzedLanguage();
+    return language === null || language.trim() === '' ? null : languageLabel(language);
+  });
+
+  protected readonly confidenceLabel = computed(() => {
+    const confidence = this.analysis()?.result?.confidence;
+    return typeof confidence === 'number' && Number.isFinite(confidence)
+      ? `${Math.round(confidence * 100)}% de confiança`
+      : null;
+  });
+
+  protected readonly isAuthenticated = computed(() => this.account.isAuthenticated());
 
   protected readonly scoreHint = computed(() => {
     const value = this.score();
@@ -198,22 +198,6 @@ export class AnalysisDetailComponent {
     return kind !== 'not-found' && kind !== 'unauthorized' && kind !== 'unavailable';
   });
 
-  protected severityLabel(issue: AnalysisIssue): string {
-    const severity = (issue.severity ?? '').toLowerCase();
-    return SEVERITY_LABELS[severity] ?? (severity === '' ? 'Problema' : severity);
-  }
-
-  protected severityTone(issue: AnalysisIssue): BadgeTone {
-    const rank = this.severityRank(issue);
-    if (rank <= 1) {
-      return 'danger';
-    }
-    if (rank === 2) {
-      return 'warning';
-    }
-    return 'info';
-  }
-
   protected retry(): void {
     this.reloadToken.update((value) => value + 1);
   }
@@ -221,14 +205,8 @@ export class AnalysisDetailComponent {
   protected openLogin(): void {
     this.auth.open();
   }
-
   protected goToNewAnalysis(): void {
     void this.router.navigate(['/analysis/new']);
-  }
-
-  private severityRank(issue: AnalysisIssue): number {
-    const severity = (issue.severity ?? '').toLowerCase();
-    return SEVERITY_RANK[severity] ?? 3;
   }
 
   private async load(id: string, signal: AbortSignal): Promise<void> {

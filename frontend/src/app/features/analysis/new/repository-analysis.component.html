@@ -41,6 +41,13 @@
     />
   </div>
 
+  <app-language-select
+    [value]="language()"
+    (valueChange)="updateLanguage($event)"
+    [protheusVersion]="protheusVersion()"
+    (protheusVersionChange)="updateProtheusVersion($event)"
+  />
+
   <div class="repo-form__loader">
     <app-button
       type="button"
@@ -53,8 +60,11 @@
       Carregar arquivos
     </app-button>
     <p class="text-caption text-muted">
-      Buscamos apenas arquivos Python (<span class="mono-metric">.py</span> e
-      <span class="mono-metric">.pyi</span>) elegíveis para análise.
+      Buscamos arquivos Python (<span class="mono-metric">.py</span>,
+      <span class="mono-metric">.pyi</span>), ADVPL (<span class="mono-metric">.prg</span>,
+      <span class="mono-metric">.ch</span>), HTML5 (<span class="mono-metric">.html</span>), CSS3
+      (<span class="mono-metric">.css</span>) e JavaScript (<span class="mono-metric">.js</span>)
+      elegíveis.
     </p>
   </div>
 
@@ -69,20 +79,105 @@
     />
   }
 
+  @if (store.relationsSummary(); as summary) {
+    <div class="repo-form__relations">
+      <p class="text-caption text-muted">
+        Referências:
+        <span class="mono-metric">{{ summary.resolved }}</span> resolvidas ·
+        <span class="mono-metric">{{ summary.missing }}</span> ausentes ·
+        <span class="mono-metric">{{ summary.external }}</span> externas ·
+        <span class="mono-metric">{{ summary.unknown }}</span> não verificadas
+      </p>
+      @if (store.hasAppsJson()) {
+        <app-badge tone="info">apps.json detectado</app-badge>
+      }
+    </div>
+  }
+
+  @if (store.hasFiles()) {
+    <div class="repo-form__filter">
+      <app-select
+        controlId="repository-language-filter"
+        label="Filtrar por linguagem"
+        [options]="store.languageOptions()"
+        [value]="store.languageFilter()"
+        (valueChange)="store.setLanguageFilter($event)"
+      />
+    </div>
+  }
+
   <app-select
+    controlId="repository-file"
     label="Arquivo"
     [options]="store.options()"
     [placeholder]="selectPlaceholder()"
     [disabled]="!store.hasFiles()"
     [hint]="
       store.hasFiles()
-        ? 'O arquivo escolhido será enviado com a URL e o caminho de origem.'
+        ? 'O arquivo escolhido será enviado com a URL, o caminho e o contexto do repositório.'
         : 'Os arquivos aparecem aqui depois de carregar o repositório.'
     "
     [error]="fileError()"
     [value]="store.selectedPath()"
     (valueChange)="store.select($event)"
   />
+
+  @if (store.hasFiles()) {
+    <section class="repo-form__files" aria-labelledby="repository-files-title">
+      <div class="repo-form__files-header">
+        <h3 id="repository-files-title" class="repo-form__files-title">Arquivos carregados</h3>
+        <p class="text-caption text-muted">
+          {{ store.filteredCount() }} de {{ fileCount() }}
+          {{ fileCount() === 1 ? 'arquivo' : 'arquivos' }}
+        </p>
+      </div>
+
+      <ul class="repo-form__file-list">
+        @for (file of store.filteredFiles(); track file.path) {
+          <li>
+            <button
+              type="button"
+              class="file-row"
+              [class.is-selected]="store.selectedPath() === file.path"
+              [attr.aria-pressed]="store.selectedPath() === file.path"
+              (click)="store.select(file.path)"
+            >
+              <span class="file-row__path mono-metric">{{ file.path }}</span>
+              <span class="file-row__meta">
+                <app-badge tone="neutral">{{ fileLanguage(file) }}</app-badge>
+                @if (fileSize(file); as size) {
+                  <span class="text-caption text-muted">{{ size }}</span>
+                }
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
+
+    @if (repositoryContext(); as context) {
+      <details class="repo-form__context">
+        <summary class="repo-form__context-summary">
+          Contexto do repositório: {{ contextFileCount() }}
+          {{ contextFileCount() === 1 ? 'arquivo' : 'arquivos' }},
+          {{ context.paths?.length ?? 0 }} caminhos, árvore
+          {{ context.tree_complete ? 'completa' : 'incompleta' }},
+          {{ context.truncated ? 'carregamento truncado' : 'sem truncamento' }}
+        </summary>
+        <div class="repo-form__context-body">
+          <p class="text-caption text-muted">
+            Este contexto acompanha a análise: os arquivos já carregados, os caminhos conhecidos e
+            os indicadores de completude não alteram o score nem os problemas.
+          </p>
+          <ul class="repo-form__context-paths">
+            @for (path of context.paths ?? []; track path) {
+              <li class="mono-metric">{{ path }}</li>
+            }
+          </ul>
+        </div>
+      </details>
+    }
+  }
 
   @if (submitStatus(); as currentStatus) {
     <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />

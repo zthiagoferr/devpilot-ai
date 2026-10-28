@@ -15,6 +15,8 @@ from app.services.analysis import (
     AnalysisExecutionError,
     AnalysisService,
     InvalidAnalysisTaskError,
+    InvalidRepositoryContextError,
+    RepositoryContextTooLargeError,
     SourceCodeTooLargeError,
 )
 
@@ -59,6 +61,10 @@ async def create_analysis(
         raise HTTPException(status_code=400, detail=str(exc))
     except SourceCodeTooLargeError as exc:
         raise HTTPException(status_code=413, detail=str(exc))
+    except RepositoryContextTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc))
+    except InvalidRepositoryContextError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     except AnalysisExecutionError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

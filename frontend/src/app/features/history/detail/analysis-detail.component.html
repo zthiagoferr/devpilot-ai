@@ -16,6 +16,9 @@
       description="Esta análise é privada e só pode ser aberta pela conta que a criou. Entre para consultar o relatório completo."
       [showRetry]="false"
     >
+      @if (auth.notice(); as notice) {
+        <p class="text-body-sm text-muted" role="alert">{{ notice }}</p>
+      }
       <app-button (click)="openLogin()">
         <app-icon name="lock" [size]="15" />
         Entrar
@@ -55,6 +58,12 @@
             <div class="flex flex-wrap items-center gap-2">
               <app-badge [tone]="status().tone">{{ status().label }}</app-badge>
               <app-badge tone="info">{{ taskLabel() }}</app-badge>
+              @if (analyzedLanguageLabel(); as languageName) {
+                <app-badge tone="neutral">{{ languageName }}</app-badge>
+              }
+              @if (confidenceLabel(); as confidence) {
+                <span class="text-caption text-muted">{{ confidence }}</span>
+              }
               <app-badge tone="neutral">{{ originLabel() }}</app-badge>
               <span class="text-caption text-muted">{{ createdAt() }}</span>
             </div>
@@ -100,28 +109,20 @@
               }
             </div>
 
-            @if (sortedIssues().length === 0) {
+            @if (issues().length === 0) {
               <p class="flex items-center gap-2 text-body-sm text-success">
                 <app-icon name="check" [size]="16" [strokeWidth]="2" />
                 Nenhum problema encontrado pelos agentes.
               </p>
             } @else {
-              <ul class="divide-y divide-border-soft">
-                @for (issue of sortedIssues(); track $index) {
-                  <li class="flex items-start gap-3 py-4 first:pt-0 last:pb-0">
-                    <app-badge [tone]="severityTone(issue)">{{ severityLabel(issue) }}</app-badge>
-
-                    <div class="flex min-w-0 flex-col gap-1">
-                      <p class="text-body-sm whitespace-pre-line break-words text-text">
-                        {{ issue.message }}
-                      </p>
-                      @if (issue.line !== undefined && issue.line !== null) {
-                        <p class="mono-metric text-caption text-muted">Linha {{ issue.line }}</p>
-                      }
-                    </div>
-                  </li>
-                }
-              </ul>
+              <app-issue-list
+                [issues]="issues()"
+                [source]="item.source_code"
+                [language]="analyzedLanguage()"
+                [analysisId]="isAuthenticated() ? item.id : null"
+                [authenticated]="isAuthenticated()"
+                (loginRequested)="openLogin()"
+              />
             }
           </div>
         </app-card>

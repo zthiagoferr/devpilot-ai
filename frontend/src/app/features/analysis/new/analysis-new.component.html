@@ -31,10 +31,17 @@
                 (blurred)="projectNameTouched.set(true)"
               />
 
+              <app-language-select
+                [value]="language()"
+                (valueChange)="updateLanguage($event)"
+                [protheusVersion]="protheusVersion()"
+                (protheusVersionChange)="updateProtheusVersion($event)"
+              />
+
               <app-textarea
                 label="Código-fonte"
-                placeholder="Cole aqui o arquivo Python que deve ser analisado."
-                hint="Python · até 1 MB"
+                placeholder="Cole aqui o arquivo que deve ser analisado (Python, ADVPL, HTML5, CSS3 ou JavaScript)."
+                [hint]="languageHint()"
                 [rows]="14"
                 [required]="true"
                 [error]="sourceCodeError()"
@@ -58,7 +65,11 @@
               </div>
             </form>
           } @else {
-            <app-repository-analysis (analyzed)="handleRepositoryResult($event)" />
+            <app-repository-analysis
+              (started)="clearRepositoryResult()"
+              (cleared)="clearRepositoryResult()"
+              (analyzed)="handleRepositoryResult($event)"
+            />
           }
         </app-tabs>
       </app-card>
@@ -79,6 +90,12 @@
                     {{ resultIssues().length === 1 ? 'problema' : 'problemas' }}
                   </app-badge>
                 }
+                @if (resultLanguageLabel(); as languageName) {
+                  <app-badge tone="info">{{ languageName }}</app-badge>
+                }
+                @if (resultConfidence(); as confidence) {
+                  <span class="text-caption text-muted">{{ confidence }}</span>
+                }
               </div>
 
               @if (resultSummary(); as summary) {
@@ -97,6 +114,21 @@
               </div>
             </div>
           </div>
+
+          @if (resultIssues().length > 0) {
+            <div class="mt-6">
+              <app-issue-list
+                [issues]="resultIssues()"
+                [source]="analysis.source_code"
+                [language]="analysis.result?.language ?? null"
+                [analysisId]="authenticated() ? analysis.id : null"
+                [protheusVersion]="language() === 'advpl' ? protheusVersion() : null"
+                [authenticated]="authenticated()"
+                (loginRequested)="openLogin()"
+                (decided)="handleDecided()"
+              />
+            </div>
+          }
         </app-card>
       }
     </div>

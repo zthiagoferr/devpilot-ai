@@ -35,6 +35,17 @@ export class AuthService {
 
   /** False when the deployment carries no public Firebase configuration. */
   readonly configured = isFirebaseConfigured(this.firebaseConfig);
+  /** Named guard used by login entry points. */
+  readonly isAuthConfigured = this.configured;
+  /**
+   * True only when the SDK finished bootstrapping without an error.
+   *
+   * `isAuthConfigured` is static (the deployment carries public config), but
+   * the flow is still unusable while the SDK is loading or after the bootstrap
+   * failed (for example an invalid api key or a blocked network). Login entry
+   * points use this signal to avoid opening a form that cannot authenticate.
+   */
+  readonly loginAvailable = computed(() => this.configured && this.status() === 'ready');
 
   readonly status = signal<AuthStatus>(this.configured ? 'idle' : 'unconfigured');
   /** True once the session was restored (or definitively dismissed). */

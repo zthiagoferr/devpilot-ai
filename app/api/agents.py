@@ -1,7 +1,9 @@
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
-from app.agents.code_agent import CodeAgent
 from app.agents.orchestrator import OrchestratorAgent
+from app.languages.detector import detect_language
 from app.schemas.analysis import (
     AnalysisRequest,
     CodeAnalysisRequest,
@@ -38,14 +40,39 @@ async def orchestrator_status() -> OrchestratorStatus:
 async def analyze_code(
     request: CodeAnalysisRequest,
 ) -> CodeAnalysisResult:
-    agent = CodeAgent()
+    orchestrator = OrchestratorAgent()
+    detection = detect_language(
+        request.source_code,
+        path=request.file_path,
+        requested=request.language,
+    )
 
-    result = await agent.execute(
+    orchestration = await orchestrator.execute(
         {
+            "task": "code",
             "project_name": request.project_name,
             "source_code": request.source_code,
+            "language": request.language,
+            "file_path": request.file_path,
+            "detection": detection,
+            "protheus_version": request.protheus_version,
         }
     )
+
+    payload = orchestration.get("result")
+    if not isinstance(payload, dict):
+        # The orchestrator never routes ``code`` to an error for a valid
+        # request, but keeping the legacy shape is safer than failing here.
+        payload = {
+            "agent": orchestration.get("agent", "orchestrator"),
+            "status": orchestration.get("status"),
+            "message": orchestration.get("message"),
+        }
+    result: dict[str, Any] = dict(payload)
+    result.setdefault("language", detection.language)
+    result.setdefault("language_source", detection.source)
+    result["confidence"] = round(float(detection.confidence), 2)
+    result.setdefault("project_name", request.project_name)
 
     return CodeAnalysisResult(**result)
 
@@ -64,6 +91,9 @@ async def orchestrate_analysis(
             "task": request.task,
             "project_name": request.project_name,
             "source_code": request.source_code,
+            "language": request.language,
+            "file_path": request.file_path,
+            "protheus_version": request.protheus_version,
         }
     )
 

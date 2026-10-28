@@ -1,0 +1,142 @@
+<div class="correction" [attr.aria-busy]="requesting() || deciding() ? 'true' : null">
+  <header class="correction__header">
+    <div class="correction__title">
+      <h3 class="text-heading font-semibold text-text" [id]="headingId">Correção com IA</h3>
+      <app-badge tone="warning">Sugestão de IA</app-badge>
+    </div>
+    <p class="correction__warning" role="note">
+      Sugestão gerada por IA — revisar antes de aplicar.
+    </p>
+    @if (isAdvpl()) {
+      <p class="correction__warning" role="note">{{ advplDisclaimer }}</p>
+    }
+  </header>
+
+  @if (status(); as currentStatus) {
+    <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
+  }
+
+  @if (correction(); as item) {
+    <div class="correction__actions">
+      <app-button size="sm" variant="secondary" [disabled]="deciding()" (click)="copy()">
+        <app-icon name="copy" [size]="15" />
+        {{ copied() ? 'Copiado' : 'Copiar' }}
+      </app-button>
+      <app-button size="sm" variant="secondary" [disabled]="deciding()" (click)="exportCorrected()">
+        <app-icon name="external" [size]="15" />
+        Exportar código
+      </app-button>
+      <app-button size="sm" variant="ghost" [disabled]="deciding()" (click)="exportDiff()">
+        <app-icon name="code" [size]="15" />
+        Exportar diferenças
+      </app-button>
+    </div>
+
+    <section class="correction__section">
+      <h4 class="correction__section-title">Código original</h4>
+      <app-source-viewer [source]="item.original_code" label="Código original" />
+    </section>
+
+    <section class="correction__section">
+      <h4 class="correction__section-title">Código corrigido</h4>
+      <app-source-viewer [source]="item.corrected_code" label="Código corrigido" />
+    </section>
+
+    <section class="correction__section">
+      <h4 class="correction__section-title">Diferenças</h4>
+      @if (diffLines().length === 0) {
+        <p class="text-body-sm text-muted">A IA não retornou diferenças para este código.</p>
+      } @else {
+        <ol class="diff" aria-label="Diferenças entre o código original e o corrigido">
+          @for (line of diffLines(); track $index) {
+            <li [class]="'diff__line diff__line--' + line.kind">
+              <span class="diff__sign" aria-hidden="true">{{ line.sign }}</span>
+              <code class="diff__text">{{ line.text }}</code>
+            </li>
+          }
+        </ol>
+      }
+    </section>
+
+    <section class="correction__section">
+      <h4 class="correction__section-title">Explicação</h4>
+      <p class="text-body-sm whitespace-pre-line break-words text-muted">
+        {{ item.explanation }}
+      </p>
+    </section>
+
+    <section class="correction__section">
+      <div class="correction__validation-header">
+        <h4 class="correction__section-title" [id]="validationLabelId">
+          Validação local (heurística)
+        </h4>
+        <app-badge [tone]="validation().tone">{{ validation().label }}</app-badge>
+      </div>
+      <p class="text-body-sm leading-relaxed text-muted">{{ validation().message }}</p>
+      <p class="text-caption text-muted">
+        Revalidação estática local — não é compilação oficial nem execução do código.
+        @if (item.post_validation.status === 'passed' && item.post_validation.target_resolved) {
+          O alvo original foi resolvido.
+        }
+      </p>
+    </section>
+
+    <section class="correction__section">
+      <div class="correction__validation-header">
+        <h4 class="correction__section-title">Decisão</h4>
+        <app-badge [tone]="decisionTone(item.status)">{{ decisionLabel(item.status) }}</app-badge>
+      </div>
+
+      @if (item.status === 'pending') {
+        @if (authenticated()) {
+          <div class="correction__actions">
+            <app-button
+              size="sm"
+              [loading]="decisionInFlight() === 'approved'"
+              [disabled]="!canDecide()"
+              (click)="decide('approved')"
+            >
+              <app-icon name="check" [size]="15" [strokeWidth]="2" />
+              Aprovar
+            </app-button>
+            <app-button
+              size="sm"
+              variant="danger"
+              [loading]="decisionInFlight() === 'rejected'"
+              [disabled]="!canDecide()"
+              (click)="decide('rejected')"
+            >
+              Rejeitar
+            </app-button>
+          </div>
+        } @else {
+          <p class="text-body-sm text-muted">
+            Entre na sua conta para aprovar ou rejeitar esta correção.
+          </p>
+          <div class="correction__actions">
+            <app-button size="sm" variant="secondary" (click)="requestLogin()">
+              <app-icon name="lock" [size]="15" />
+              Entrar
+            </app-button>
+          </div>
+        }
+      } @else {
+        <p class="text-body-sm text-muted">
+          A decisão já foi registrada. Aprovar uma correção não altera o código da análise nem o
+          repositório.
+        </p>
+      }
+    </section>
+  } @else {
+    <div class="correction__intro">
+      <p class="text-body-sm text-muted">
+        A IA propõe um código corrigido para este problema. A sugestão não é aplicada
+        automaticamente e a validação exibida é local e heurística.
+      </p>
+      <app-button size="sm" [loading]="requesting()" [disabled]="!canRequest()" (click)="request()">
+        <app-icon name="sparkles" [size]="15" />
+        Corrigir com IA
+      </app-button>
+    </div>
+  }
+</div>

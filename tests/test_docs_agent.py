@@ -63,3 +63,8 @@ async def test_docs_agent_detects_invalid_syntax() -> None:
     assert result["agent"] == "docs_agent"
     assert result["score"] == 0
     assert result["issues"][0]["severity"] == "critical"
+    issue = result["issues"][0]
+    assert issue["cause"] == "python_syntax"
+    assert issue["rule_id"] == "python_syntax_error"
+    assert issue["column"] == 11
+    assert "line" in issue

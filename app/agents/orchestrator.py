@@ -7,10 +7,34 @@ from app.agents.coding_agent import CodingAgent
 from app.agents.development_agent import DevelopmentAgent
 from app.agents.docs_agent import DocsAgent
 from app.agents.insights_agent import InsightsAgent
+from app.agents.language_agent import LanguageCodeAgent, LanguageReportAgent
 from app.agents.planning_agent import PlanningAgent
 from app.agents.report_agent import ReportAgent
 from app.agents.test_agent import TestAgent
+from app.languages.base import Detection
+from app.languages.detector import detect_language
 from app.tools import ToolRegistry, create_default_project_registry
+
+
+#: Tasks the orchestrator knows how to route. Validating the task before any
+#: language detection keeps the historical "No agent available for task"
+#: response for unknown tasks.
+_KNOWN_TASKS: frozenset[str] = frozenset(
+    {
+        "code",
+        "tests",
+        "docs",
+        "full_analysis",
+        "develop",
+        "multi_file_develop",
+        "autonomous_develop",
+    }
+)
+
+#: Tasks handled by the deterministic language agents for non-Python sources.
+_LANGUAGE_TASKS: frozenset[str] = frozenset(
+    {"code", "tests", "docs", "full_analysis"}
+)
 
 
 def _dependency_value(dependencies: Any, name: str) -> Any:
@@ -109,6 +133,12 @@ class OrchestratorAgent(BaseAgent):
         self._report_agent = _construct_agent(
             ReportAgent, injected_runtime, self.tool_registry
         )
+        self._language_agent = _construct_agent(
+            LanguageCodeAgent, injected_runtime, self.tool_registry
+        )
+        self._language_report_agent = _construct_agent(
+            LanguageReportAgent, injected_runtime, self.tool_registry
+        )
         self._insights_agent = insights_agent
         self._coding_agent = coding_agent
         self._planning_agent = planning_agent
@@ -124,20 +154,71 @@ class OrchestratorAgent(BaseAgent):
         if not task:
             return {"agent": self.name, "status": "error", "message": "Task was not provided."}
 
+        # Validate the task before detection: unknown tasks must keep their
+        # historical, exact message and never reach a language validator.
+        if task not in _KNOWN_TASKS:
+            return {"agent": self.name, "status": "error", "message": f"No agent available for task: {task}"}
+
         if task == "develop":
             return await self._execute_development(context)
         if task == "multi_file_develop":
             return await self._execute_multi_file_development(context)
         if task == "autonomous_develop":
             return await self._execute_autonomous_development(context)
+
+        if task in _LANGUAGE_TASKS:
+            detection = self._detection_for(context)
+            if detection.language != "python":
+                return await self._execute_language_analysis(context, task, detection)
+
         if task == "full_analysis":
             return await self._execute_full_analysis(context)
 
         selected_agent = self._agents.get(task)
-        if selected_agent is None:
-            return {"agent": self.name, "status": "error", "message": f"No agent available for task: {task}"}
         result = await selected_agent.execute(context)
         return {"agent": self.name, "status": "completed", "delegated_to": selected_agent.name, "result": result}
+
+    @staticmethod
+    def _detection_for(context: dict[str, Any]) -> Detection:
+        detection = context.get("detection")
+        if isinstance(detection, Detection):
+            return detection
+        source_code = context.get("source_code")
+        return detect_language(
+            source_code if isinstance(source_code, str) else "",
+            path=context.get("file_path"),
+            requested=context.get("language"),
+        )
+
+    async def _execute_language_analysis(
+        self,
+        context: dict[str, Any],
+        task: str,
+        detection: Detection,
+    ) -> dict[str, Any]:
+        language_context = {**context, "detection": detection}
+
+        if task == "full_analysis":
+            report = await self._language_report_agent.execute(
+                {**language_context, "requested_task": "full_analysis"}
+            )
+            return {
+                "agent": self.name,
+                "status": "completed",
+                "delegated_to": ["language_agent", "language_report_agent"],
+                "result": {"report": report},
+            }
+
+        if task in ("tests", "docs"):
+            language_context["requested_task"] = task
+
+        result = await self._language_agent.execute(language_context)
+        return {
+            "agent": self.name,
+            "status": "completed",
+            "delegated_to": ["language_agent"],
+            "result": result,
+        }
 
     async def _execute_development(self, context: dict[str, Any]) -> dict[str, Any]:
         if self._coding_agent is None:

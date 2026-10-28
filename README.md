@@ -124,6 +124,39 @@ Settings are supplied through the application settings system and environment va
 
 API keys and connection credentials are excluded from settings representations and validation errors. Use environment or secret-management facilities and keep local secret files out of version control.
 
+### CORS and frontend origins
+
+`FRONTEND_ORIGINS` is a comma-separated allowlist of **exact** origins (scheme + host + port), for example `http://localhost:4200`. Wildcards are not used: the middleware only returns `Access-Control-Allow-Origin` for the listed origins and does not enable credentials. The deployment environment (for example the Render variable) controls this list, not the frontend code.
+
+For local development, start the API with the Angular dev-server origin:
+
+```bash
+FRONTEND_ORIGINS=http://localhost:4200 uvicorn app.main:app --reload
+```
+
+Then start the frontend in another terminal:
+
+```bash
+cd frontend
+npm start
+```
+
+For production, configure the exact GitHub Pages origin (for example `https://<user>.github.io`, without a path) and follow [DEPLOY.md](DEPLOY.md). A URL with a path is not a valid CORS origin.
+
+### Main environment variables
+
+[.env.example](.env.example) documents every supported variable. The most relevant groups are:
+
+- `DATABASE_URL`: local SQLite or PostgreSQL/Neon in production.
+- `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`: provider used by AI correction.
+- `GITHUB_TOKEN`, `GITHUB_API_BASE_URL`, `GITHUB_MAX_FILES`, `GITHUB_MAX_FILE_BYTES`, `GITHUB_MAX_TOTAL_BYTES`, `GITHUB_MAX_TREE_PATHS`, `GITHUB_APPS_JSON_MAX_BYTES`, `GITHUB_LOAD_TOTAL_SECONDS`: repository loading.
+- `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, `TRUST_PROXY_HEADERS`: per-IP throttling and reverse-proxy trust.
+- `CORRECTION_MAX_SOURCE_BYTES`, `CORRECTION_MAX_CORRECTED_BYTES`, `CORRECTION_MAX_EXPLANATION_BYTES`, `CORRECTION_RATE_LIMIT_REQUESTS`, `CORRECTION_RATE_LIMIT_WINDOW_SECONDS`, `CORRECTION_FAKE_PROVIDER_ENABLED`: AI correction limits.
+- `ADVPL_OFFICIAL_VALIDATION_ENABLED`: keeps ADVPL validation heuristic by default.
+- `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON`: optional authentication; without them authenticated routes answer `401`.
+
+Never commit real values; use platform-managed secrets in production and see [DEPLOY.md](DEPLOY.md).
+
 ## Local setup
 
 ```bash

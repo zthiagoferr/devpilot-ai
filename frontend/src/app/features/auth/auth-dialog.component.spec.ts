@@ -9,7 +9,9 @@ import { AuthDialogComponent } from './auth-dialog.component';
 
 interface AuthStub {
   configured: boolean;
+  isAuthConfigured: boolean;
   status: ReturnType<typeof signal<AuthStatus>>;
+  loginAvailable: ReturnType<typeof computed<boolean>>;
   error: ReturnType<typeof signal<string | null>>;
   user: ReturnType<typeof signal<AuthUser | null>>;
   isAuthenticated: ReturnType<typeof computed<boolean>>;
@@ -30,9 +32,12 @@ describe('AuthDialogComponent', () => {
 
   function createStub(configured = true): AuthStub {
     const user = signal<AuthUser | null>(null);
+    const status = signal<AuthStatus>(configured ? 'ready' : 'unconfigured');
     return {
       configured,
-      status: signal<AuthStatus>(configured ? 'ready' : 'unconfigured'),
+      isAuthConfigured: configured,
+      status,
+      loginAvailable: computed(() => configured && status() === 'ready'),
       error: signal<string | null>(null),
       user,
       isAuthenticated: computed(() => user() !== null),
@@ -144,17 +149,14 @@ describe('AuthDialogComponent', () => {
     ).toBeNull();
   });
 
-  it('degrades explicitly and disables every action when Firebase is not configured', async () => {
+  it('does not open the Firebase flow when authentication is not configured', async () => {
     await create(false);
-    prompts.open();
+    const opened = prompts.open();
     fixture.detectChanges();
 
-    expect(text()).toContain('A autenticação não está configurada neste ambiente');
-    expect(submitButton().disabled).toBe(true);
-    const github = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'),
-    ).find((item) => (item.textContent ?? '').includes('Entrar com GitHub'));
-    expect(github?.disabled).toBe(true);
+    expect(opened).toBe(false);
+    expect(prompts.isOpen()).toBe(false);
+    expect(prompts.notice()).toContain('Login não disponível');
   });
 
   it('shows the contextual session message and submits the credentials', async () => {

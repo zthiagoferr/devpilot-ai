@@ -297,7 +297,12 @@ def test_create_analysis_passes_dashboard_payload_to_service() -> None:
     response = test_client.post("/analyses", json=payload)
 
     assert response.status_code == 201
-    assert service.created_requests == [payload]
+    # The request model now also carries the optional multi-language fields
+    # (``language``/``file_path``/``protheus_version``/``repository_context``),
+    # so ``model_dump()`` includes them with their defaults. The dashboard
+    # payload must still be delivered unchanged.
+    created = service.created_requests[0]
+    assert {key: created[key] for key in payload} == payload
 
 
 def test_create_analysis_records_the_verified_owner_and_hides_it() -> None:

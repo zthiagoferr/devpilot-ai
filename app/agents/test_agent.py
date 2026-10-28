@@ -2,6 +2,7 @@ import ast
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.agents.python_issues import syntax_error_issue
 
 
 class TestAgent(BaseAgent):
@@ -28,13 +29,7 @@ class TestAgent(BaseAgent):
                 "agent": self.name,
                 "project_name": project_name,
                 "score": 0,
-                "issues": [
-                    {
-                        "severity": "critical",
-                        "message": exc.msg,
-                        "line": exc.lineno,
-                    }
-                ],
+                "issues": [syntax_error_issue(exc)],
                 "summary": "Python test syntax error detected.",
             }
 

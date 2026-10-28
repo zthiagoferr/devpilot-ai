@@ -3,13 +3,48 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClient } from '../api/api-client';
 import { ApiError } from '../api/api-error.mapper';
-import { RepositoryFile } from '../api/api.types';
+import { Relations, RepositoryFile } from '../api/api.types';
 import { RepositoryStore } from './repository-store';
 
 const FILES: readonly RepositoryFile[] = [
-  { path: 'src/sample.py', size: 2048, source_code: 'print("sample")' },
-  { path: 'tests/test_sample.py', size: 512, source_code: 'def test_sample(): pass' },
+  {
+    path: 'src/sample.py',
+    size: 2048,
+    source_code: 'print("sample")',
+    language: 'python',
+    language_source: 'extension',
+    confidence: 0.95,
+  },
+  {
+    path: 'tests/test_sample.py',
+    size: 512,
+    source_code: 'def test_sample(): pass',
+    language: 'python',
+    language_source: 'extension',
+    confidence: 0.95,
+  },
+  {
+    path: 'src/financeiro.prg',
+    size: 1024,
+    source_code: 'User Function Teste()\nReturn\n',
+    language: 'advpl',
+    language_source: 'extension',
+    confidence: 0.9,
+  },
 ];
+
+const RELATIONS: Relations = {
+  version: 1,
+  generated_by: 'deterministic',
+  truncated: false,
+  tree_complete: true,
+  summary: { resolved: 2, missing: 1, external: 0, unknown: 3 },
+  edges: [],
+  nodes: [],
+  protheus: {
+    apps_json: { path: 'apps.json', present: true, parsed: true, applications: 2, keys: ['app'] },
+  },
+};
 
 describe('RepositoryStore', () => {
   const loadRepository = vi.fn();
@@ -33,9 +68,10 @@ describe('RepositoryStore', () => {
       'pypa/sampleproject',
       null,
       expect.any(AbortSignal),
+      null,
     );
     expect(store.state()).toBe('ready');
-    expect(store.files()).toHaveLength(2);
+    expect(store.files()).toHaveLength(3);
     expect(store.options()[0]).toEqual({ value: 'src/sample.py', label: 'src/sample.py · 2.0 KB' });
     expect(store.canSubmit()).toBe(false);
 
@@ -44,11 +80,85 @@ describe('RepositoryStore', () => {
     expect(store.canSubmit()).toBe(true);
   });
 
+  it('forwards the language filter to the repository load', async () => {
+    loadRepository.mockResolvedValue({ files: FILES, truncated: false });
+
+    await store.load('owner/advpl', 'main', 'advpl');
+
+    expect(loadRepository).toHaveBeenCalledWith(
+      'owner/advpl',
+      'main',
+      expect.any(AbortSignal),
+      'advpl',
+    );
+  });
+
+  it('exposes languages, filters the list and clears a hidden selection', async () => {
+    loadRepository.mockResolvedValue({ files: FILES, truncated: false });
+    await store.load('owner/mixed');
+    store.select('src/sample.py');
+
+    expect(store.availableLanguages()).toEqual(['python', 'advpl']);
+    expect(store.languageOptions()).toEqual([
+      { value: 'all', label: 'Todas as linguagens' },
+      { value: 'python', label: 'Python' },
+      { value: 'advpl', label: 'ADVPL' },
+    ]);
+
+    store.setLanguageFilter('advpl');
+
+    expect(store.filteredFiles().map((file) => file.path)).toEqual(['src/financeiro.prg']);
+    expect(store.selectedPath()).toBe('');
+    expect(store.canSubmit()).toBe(false);
+
+    store.select('src/financeiro.prg');
+    expect(store.canSubmit()).toBe(true);
+    expect(store.options()).toEqual([
+      { value: 'src/financeiro.prg', label: 'src/financeiro.prg · 1.0 KB' },
+    ]);
+  });
+
+  it('keeps the selection when the filter still includes the file', async () => {
+    loadRepository.mockResolvedValue({ files: FILES, truncated: false });
+    await store.load('owner/mixed');
+    store.select('src/sample.py');
+
+    store.setLanguageFilter('python');
+
+    expect(store.selectedPath()).toBe('src/sample.py');
+    expect(store.canSubmit()).toBe(true);
+  });
+
+  it('surfaces paths, tree completeness, relations and the Protheus metadata', async () => {
+    loadRepository.mockResolvedValue({
+      files: FILES,
+      truncated: true,
+      paths: ['src/sample.py', 'src/financeiro.prg', 'apps.json'],
+      tree_complete: false,
+      relations: RELATIONS,
+      protheus: RELATIONS.protheus?.apps_json,
+    });
+
+    await store.load('owner/large-repo');
+
+    expect(store.truncated()).toBe(true);
+    expect(store.treeComplete()).toBe(false);
+    expect(store.paths()).toHaveLength(3);
+    expect(store.relationsSummary()).toEqual({
+      resolved: 2,
+      missing: 1,
+      external: 0,
+      unknown: 3,
+    });
+    expect(store.hasAppsJson()).toBe(true);
+    expect(store.protheus()?.path).toBe('apps.json');
+  });
+
   it('reports an empty repository with the API message and no selectable files', async () => {
     loadRepository.mockResolvedValue({
       files: [],
       truncated: false,
-      message: 'No eligible Python files were found in this repository.',
+      message: 'No eligible files were found in this repository.',
     });
 
     const loaded = await store.load('owner/docs-only');
@@ -58,7 +168,17 @@ describe('RepositoryStore', () => {
     expect(store.files()).toHaveLength(0);
     expect(store.options()).toHaveLength(0);
     expect(store.canSubmit()).toBe(false);
-    expect(store.message()).toBe('No eligible Python files were found in this repository.');
+    expect(store.message()).toBe('No eligible files were found in this repository.');
+  });
+
+  it('falls back to a multi-language empty message when the API sends none', async () => {
+    loadRepository.mockResolvedValue({ files: [], truncated: false, message: null });
+
+    await store.load('owner/empty');
+
+    expect(store.state()).toBe('empty');
+    expect(store.message()).toContain('ADVPL');
+    expect(store.message()).toContain('JavaScript');
   });
 
   it('surfaces a truncated load without dropping the returned files', async () => {
@@ -68,11 +188,12 @@ describe('RepositoryStore', () => {
 
     expect(store.state()).toBe('ready');
     expect(store.truncated()).toBe(true);
-    expect(store.files()).toHaveLength(2);
+    expect(store.files()).toHaveLength(3);
     expect(loadRepository).toHaveBeenCalledWith(
       'owner/large-repo',
       'main',
       expect.any(AbortSignal),
+      null,
     );
   });
 

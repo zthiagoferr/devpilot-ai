@@ -181,7 +181,10 @@ def get_engine() -> AsyncEngine:
             options["connect_args"] = connect_args
 
     try:
-        _engine = create_async_engine(database_url, **options)
+        # ``echo`` stays disabled: SQLAlchemy would otherwise log bound
+        # parameters, which can contain analyzed user code. The logging filter
+        # in ``app.core.logging`` is the defense in depth for exceptions.
+        _engine = create_async_engine(database_url, echo=False, **options)
     except Exception:
         # Do not expose driver errors because some drivers include the complete
         # URL, including credentials, in their exception text.

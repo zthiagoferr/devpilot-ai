@@ -40,7 +40,7 @@ const DEFAULT_LIMIT = 150_000;
       <pre
         class="source__code"
         tabindex="0"
-        aria-label="Código-fonte da análise"
+        [attr.aria-label]="label()"
       ><code>{{ visibleSource() }}</code></pre>
     </div>
   `,
@@ -90,6 +90,7 @@ const DEFAULT_LIMIT = 150_000;
 export class SourceViewerComponent {
   readonly source = input.required<string>();
   readonly limit = input(DEFAULT_LIMIT);
+  readonly label = input('Código-fonte da análise');
 
   protected readonly expanded = signal(false);
 

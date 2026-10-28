@@ -80,6 +80,10 @@
           </app-button>
         }
 
+        @if (prompts.notice(); as notice) {
+          <p class="account__error" role="alert">{{ notice }}</p>
+        }
+
         @if (accountError()) {
           <p class="account__error" role="alert">{{ accountError() }}</p>
         }

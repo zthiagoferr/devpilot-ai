@@ -10,6 +10,12 @@ import {
 } from './api-error.mapper';
 import {
   Analysis,
+  AnalysisLanguage,
+  Correction,
+  CorrectionCreate,
+  CorrectionDecision,
+  CorrectionExport,
+  CorrectionExportFormat,
   CreateAnalysisRequest,
   OrchestratorStatus,
   RepositoryLoad,
@@ -55,16 +61,85 @@ export class ApiClient {
     return this.request<Analysis[]>('GET', `/analyses?limit=${limit}`, undefined, signal);
   }
 
+  /**
+   * Loads the analyzable files of a public repository.
+   *
+   * `language` is an optional filter forwarded to the backend; `auto` (and an
+   * empty value) keeps the multi-language discovery.
+   */
   loadRepository(
     repositoryUrl: string,
     branch?: string | null,
     signal?: AbortSignal,
+    language?: AnalysisLanguage | null,
   ): Promise<RepositoryLoad> {
     const payload: RepositoryLoadRequest = {
       repository_url: repositoryUrl,
       ...(branch ? { branch } : {}),
+      ...(language && language !== 'auto' ? { language } : {}),
     };
     return this.request<RepositoryLoad>('POST', '/repositories/load', payload, signal);
+  }
+
+  createCorrection(payload: CorrectionCreate, signal?: AbortSignal): Promise<Correction> {
+    return this.request<Correction>('POST', '/corrections', payload, signal);
+  }
+
+  listCorrections(analysisId: string, signal?: AbortSignal): Promise<Correction[]> {
+    return this.request<Correction[]>(
+      'GET',
+      `/corrections?analysis_id=${encodeURIComponent(analysisId)}`,
+      undefined,
+      signal,
+    );
+  }
+
+  getCorrection(id: string, signal?: AbortSignal): Promise<Correction> {
+    return this.request<Correction>(
+      'GET',
+      `/corrections/${encodeURIComponent(id)}`,
+      undefined,
+      signal,
+    );
+  }
+
+  decideCorrection(
+    id: string,
+    decision: CorrectionDecision,
+    signal?: AbortSignal,
+  ): Promise<Correction> {
+    return this.request<Correction>(
+      'POST',
+      `/corrections/${encodeURIComponent(id)}/decision`,
+      decision,
+      signal,
+    );
+  }
+
+  /**
+   * Downloads one correction as a `Blob`.
+   *
+   * The endpoint requires the caller's bearer token, so it cannot be a plain
+   * anchor `href`; the authenticated `fetch` goes through the same error
+   * mapping as every other call.
+   */
+  async exportCorrection(
+    id: string,
+    format: CorrectionExportFormat = 'corrected',
+    signal?: AbortSignal,
+  ): Promise<CorrectionExport> {
+    const response = await this.send(
+      'GET',
+      `/corrections/${encodeURIComponent(id)}/export?format=${format}`,
+      undefined,
+      signal,
+    );
+
+    return {
+      blob: await response.blob(),
+      filename: filenameFromDisposition(response.headers.get('Content-Disposition')),
+      contentType: response.headers.get('Content-Type'),
+    };
   }
 
   private async request<T>(
@@ -73,6 +148,25 @@ export class ApiClient {
     body?: unknown,
     signal?: AbortSignal,
   ): Promise<T> {
+    const response = await this.send(method, path, body, signal);
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    const payload = await this.readBody(response);
+    if (payload === null) {
+      throw mapInvalidResponseError();
+    }
+    return payload as T;
+  }
+
+  private async send(
+    method: HttpMethod,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     if (!this.config.hasApi()) {
       throw mapUnavailableError();
     }
@@ -108,15 +202,7 @@ export class ApiClient {
       throw mapErrorResponse(response.status, payload, response.headers.get('Retry-After'));
     }
 
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    const payload = await this.readBody(response);
-    if (payload === null) {
-      throw mapInvalidResponseError();
-    }
-    return payload as T;
+    return response;
   }
 
   private async readBody(response: Response): Promise<unknown> {
@@ -135,4 +221,23 @@ export class ApiClient {
       throw mapInvalidResponseError(error);
     }
   }
+}
+
+/** Extracts the filename from a server `Content-Disposition` header. */
+export function filenameFromDisposition(header: string | null): string | null {
+  if (header === null || header.trim() === '') {
+    return null;
+  }
+
+  const utf8 = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (utf8?.[1] !== undefined) {
+    try {
+      return decodeURIComponent(utf8[1].trim().replace(/^"|"$/g, ''));
+    } catch {
+      return utf8[1].trim().replace(/^"|"$/g, '');
+    }
+  }
+
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() ?? null;
 }

@@ -16,6 +16,8 @@ export type ButtonSize = 'sm' | 'md';
       [disabled]="disabled() || loading()"
       [attr.aria-busy]="loading() ? 'true' : null"
       [attr.aria-label]="ariaLabel() || null"
+      [attr.aria-expanded]="ariaExpanded() === null ? null : ariaExpanded() ? 'true' : 'false'"
+      [attr.aria-controls]="ariaControls() || null"
     >
       @if (loading()) {
         <span class="spinner" aria-hidden="true"></span>
@@ -169,6 +171,8 @@ export class ButtonComponent {
   readonly disabled = input(false);
   readonly fullWidth = input(false);
   readonly ariaLabel = input('');
+  readonly ariaExpanded = input<boolean | null>(null);
+  readonly ariaControls = input('');
 
   protected readonly buttonClass = computed(
     () => `button button--${this.variant()} button--${this.size()}`,

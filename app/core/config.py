@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     github_max_files: int = 1_000
     github_max_file_bytes: int = 1_000_000
     github_max_total_bytes: int = 5_000_000
+    # Upper bound for the number of tree paths collected as repository context.
+    # When a tree has more blobs than this, the path set is truncated and the
+    # reference graph reports ``tree_complete=False`` (unknown instead of missing).
+    github_max_tree_paths: int = 5_000
+    # Maximum size of the root ``apps.json`` metadata file read for Protheus
+    # repositories. Larger files are ignored without failing the load.
+    github_apps_json_max_bytes: int = 65_536
+    # Deterministic relation graph edge cap per analysis.
+    relations_max_edges: int = 5_000
     # Global time budget for a single ``POST /repositories/load`` call. It is
     # shared by every download of that call and is enforced on top of the
     # per-request HTTP timeout.
@@ -57,6 +66,22 @@ class Settings(BaseSettings):
     # when clients can reach the application directly, because the header can be
     # forged.
     trust_proxy_headers: bool = False
+    # AI correction (Fase 6-7). The service never executes the returned code,
+    # so both limits bound the prompt/response text only.
+    correction_max_source_bytes: int = 200_000
+    correction_max_corrected_bytes: int = 1_000_000
+    # The model's explanation is short prose; a larger payload is treated as an
+    # unusable response instead of being persisted.
+    correction_max_explanation_bytes: int = 20_000
+    correction_rate_limit_requests: int = 20
+    correction_rate_limit_window_seconds: float = 60.0
+    # The deterministic fake provider must be opted into explicitly before the
+    # correction endpoint is exposed; otherwise ``LLM_PROVIDER=fake`` (the
+    # development default) answers ``503`` instead of persisting fake code.
+    correction_fake_provider_enabled: bool = False
+    # ADVPL validation stays heuristic unless an official toolchain is
+    # explicitly configured. Nothing in this repository runs a build.
+    advpl_official_validation_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

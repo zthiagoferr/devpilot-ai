@@ -1,0 +1,77 @@
+@if (hasAdvplIssue()) {
+  <p class="issue-list__disclaimer" role="note">
+    {{ advplDisclaimer }}
+  </p>
+}
+
+@if (sortedIssues().length === 0) {
+  <p class="issue-list__empty">
+    <app-icon name="check" [size]="16" [strokeWidth]="2" />
+    Nenhum problema encontrado nesta análise.
+  </p>
+} @else {
+  <ul class="issue-list">
+    @for (issue of sortedIssues(); track $index) {
+      <li class="issue">
+        <div class="issue__row">
+          <app-badge [tone]="issueSeverityTone(issue)">{{ issueSeverityLabel(issue) }}</app-badge>
+
+          <div class="issue__content">
+            <p class="issue__message">{{ issue.message }}</p>
+
+            @if (issueCause(issue); as cause) {
+              <p class="issue__cause">Causa: {{ cause }}</p>
+            }
+
+            @if (issuePosition(issue); as position) {
+              <p class="mono-metric issue__location">{{ position }}</p>
+            }
+
+            <div class="issue__meta">
+              @if (issue.language) {
+                <app-badge tone="neutral">{{ issueLanguageName(issue) }}</app-badge>
+              }
+              @if (issueOrigin(issue); as origin) {
+                <app-badge [tone]="origin.tone">{{ origin.label }}</app-badge>
+              }
+              @if (issueIsAdvpl(issue)) {
+                <span class="issue__note">Análise estática — não valida compilação</span>
+              }
+            </div>
+
+            @if (canCorrect()) {
+              <div class="issue__actions">
+                <app-button
+                  size="sm"
+                  variant="secondary"
+                  [ariaExpanded]="openIndex() === $index"
+                  [ariaControls]="panelId($index)"
+                  (click)="toggle($index)"
+                >
+                  <app-icon name="sparkles" [size]="15" />
+                  {{ openIndex() === $index ? 'Ocultar correção' : 'Corrigir com IA' }}
+                </app-button>
+              </div>
+            }
+          </div>
+        </div>
+
+        @if (openIndex() === $index && canCorrect()) {
+          <div class="issue__panel" [id]="panelId($index)">
+            <app-correction-panel
+              [issue]="issue"
+              [source]="source()"
+              [language]="issue.language ?? language()"
+              [file]="issue.file ?? file()"
+              [analysisId]="analysisId()"
+              [protheusVersion]="protheusVersion()"
+              [authenticated]="authenticated()"
+              (loginRequested)="forwardLogin()"
+              (decided)="forwardDecision($event)"
+            />
+          </div>
+        }
+      </li>
+    }
+  </ul>
+}

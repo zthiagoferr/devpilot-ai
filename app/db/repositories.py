@@ -1,14 +1,15 @@
-"""Database repositories for analysis records."""
+"""Database repositories for analysis records and AI corrections."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Analysis
+from app.db.models import Analysis, AnalysisCorrection
 
 
 def _require_owner(user_id: str | None) -> str:
@@ -111,3 +112,106 @@ class AnalysisRepository:
         )
         result = await self.session.execute(statement)
         return list(result.scalars().all())
+
+
+class CorrectionAlreadyDecidedError(ValueError):
+    """Raised when a decision tries to change an already decided correction."""
+
+
+class CorrectionRepository:
+    """Persistence operations for :class:`AnalysisCorrection` records.
+
+    Like :class:`AnalysisRepository`, transaction ownership stays with the
+    caller. Every read is owner-scoped: a correction owned by somebody else, or
+    by nobody, is indistinguishable from a missing record.
+    """
+
+    DEFAULT_LIMIT = 50
+    MAX_LIMIT = 100
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(self, **fields: Any) -> AnalysisCorrection:
+        """Create, flush, and return a correction record."""
+        correction = AnalysisCorrection(**fields)
+        self.session.add(correction)
+        await self.session.flush()
+        await self.session.refresh(correction)
+        return correction
+
+    async def get_by_id(
+        self,
+        correction_id: UUID,
+        *,
+        user_id: str | None,
+    ) -> AnalysisCorrection | None:
+        """Return a correction owned by ``user_id``, or ``None``.
+
+        A correction with ``user_id`` ``NULL`` is never returned: anonymous
+        submissions remain unreadable by design (see the ADR).
+        """
+        owner = _require_owner(user_id)
+        statement = select(AnalysisCorrection).where(
+            AnalysisCorrection.id == correction_id,
+            AnalysisCorrection.user_id == owner,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def list_for_analysis(
+        self,
+        analysis_id: UUID,
+        *,
+        user_id: str | None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> list[AnalysisCorrection]:
+        """Return the owner's corrections for one analysis, newest first."""
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError("limit must be an integer between 1 and 100")
+        if not 1 <= limit <= self.MAX_LIMIT:
+            raise ValueError(f"limit must be between 1 and {self.MAX_LIMIT}")
+
+        owner = _require_owner(user_id)
+        statement = (
+            select(AnalysisCorrection)
+            .where(
+                AnalysisCorrection.analysis_id == analysis_id,
+                AnalysisCorrection.user_id == owner,
+            )
+            .order_by(AnalysisCorrection.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def decide(
+        self,
+        correction_id: UUID,
+        status: str,
+        *,
+        user_id: str | None,
+    ) -> AnalysisCorrection | None:
+        """Record a decision on a pending correction.
+
+        Returns ``None`` when the record is not visible to ``user_id``. The
+        transition is idempotent for the same status and raises
+        :class:`CorrectionAlreadyDecidedError` when it would change a decided
+        record. Approving never mutates the related analysis.
+        """
+        correction = await self.get_by_id(correction_id, user_id=user_id)
+        if correction is None:
+            return None
+
+        if correction.status == status:
+            return correction
+        if correction.status != "pending":
+            raise CorrectionAlreadyDecidedError(
+                "The correction has already been decided."
+            )
+
+        correction.status = status
+        correction.decided_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        await self.session.refresh(correction)
+        return correction

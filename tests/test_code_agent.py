@@ -42,4 +42,10 @@ async def test_code_agent_detects_invalid_python_syntax() -> None:
     assert result["score"] == 0
     assert len(result["issues"]) == 1
     assert result["issues"][0]["severity"] == "critical"
+    issue = result["issues"][0]
+    assert issue["message"] == "'(' was never closed"
+    assert issue["line"] == 1
+    assert issue["cause"] == "python_syntax"
+    assert issue["column"] == 10
+    assert issue["rule_id"] == "python_syntax_error"
     assert result["summary"] == "Python syntax error detected."

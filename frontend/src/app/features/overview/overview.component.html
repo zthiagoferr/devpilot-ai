@@ -103,6 +103,9 @@
     </div>
 
     @if (isVisitor()) {
+      @if (prompts.notice(); as notice) {
+        <p class="text-body-sm text-muted" role="alert">{{ notice }}</p>
+      }
       <app-empty-state
         icon="lock"
         title="Entre para acompanhar sua atividade"
