@@ -398,6 +398,7 @@ describe('CorrectionPanelComponent', () => {
 
   it.each([
     [503, 'A correção de IA não está configurada no servidor.'],
+    [504, 'A IA demorou para responder. Tente novamente ou use um arquivo menor.'],
     [502, 'A IA retornou uma correção inválida.'],
     [429, 'Muitas solicitações de correção.'],
   ])('shows a clear PT-BR message for HTTP %s', async (status, expected) => {
@@ -414,6 +415,24 @@ describe('CorrectionPanelComponent', () => {
     await settle(fixture);
 
     expect(element.textContent).toContain(expected);
+    expect(buttonByText(element, 'Corrigir com IA')?.disabled).toBe(false);
+  });
+
+  it('explains a safety rejection (HTTP 422) instead of a generic validation error', async () => {
+    createCorrection.mockRejectedValue(
+      new ApiError('validation', 'Dados inválidos: The proposed correction was rejected by safety checks.', {
+        status: 422,
+      }),
+    );
+    const fixture = create();
+    const element = fixture.nativeElement as HTMLElement;
+
+    buttonByText(element, 'Corrigir com IA')?.click();
+    await settle(fixture);
+
+    expect(element.textContent).toContain(
+      'A correção proposta foi rejeitada pelas verificações de segurança.',
+    );
     expect(buttonByText(element, 'Corrigir com IA')?.disabled).toBe(false);
   });
 });

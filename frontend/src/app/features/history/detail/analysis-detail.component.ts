@@ -96,10 +96,19 @@ export class AnalysisDetailComponent {
     });
   }
 
-  protected readonly score = computed(() => this.analysis()?.result?.score ?? null);
+  protected readonly validationSkipped = computed(
+    () => this.analysis()?.result?.validation_skipped === true,
+  );
+
+  protected readonly score = computed(() =>
+    this.validationSkipped() ? null : (this.analysis()?.result?.score ?? null),
+  );
 
   protected readonly summary = computed(() => {
     const analysis = this.analysis();
+    if (this.validationSkipped()) {
+      return 'Idioma não reconhecido — selecione manualmente. A análise estrutural não foi executada.';
+    }
     const result = analysis?.result;
     return analysisSummaryPtBr({
       summary: result?.summary,
@@ -130,6 +139,9 @@ export class AnalysisDetailComponent {
   protected readonly isAuthenticated = computed(() => this.account.isAuthenticated());
 
   protected readonly scoreHint = computed(() => {
+    if (this.validationSkipped()) {
+      return 'Idioma não reconhecido — selecione manualmente.';
+    }
     const value = this.score();
     if (value === null || !Number.isFinite(value)) {
       return 'Score não disponível';

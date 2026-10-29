@@ -31,7 +31,7 @@ type RingTone = 'success' | 'warning' | 'danger' | 'muted';
 
       <div class="score-ring__center" aria-hidden="true">
         <span class="score-ring__number">{{ displayScore() }}</span>
-        <span class="score-ring__caption">{{ caption() }}</span>
+        <span class="score-ring__caption">{{ displayCaption() }}</span>
       </div>
     </div>
   `,
@@ -125,6 +125,8 @@ export class ScoreRingComponent {
   readonly score = input<number | null>(null);
   readonly size = input(112);
   readonly caption = input('score');
+  /** Caption used instead of ``caption`` when there is no score to show. */
+  readonly emptyLabel = input<string | null>(null);
 
   protected readonly radius = RADIUS;
   protected readonly circumference = CIRCUMFERENCE;
@@ -140,6 +142,13 @@ export class ScoreRingComponent {
   protected readonly displayScore = computed(() => {
     const value = this.normalized();
     return value === null ? '—' : String(value);
+  });
+
+  protected readonly displayCaption = computed(() => {
+    const emptyLabel = this.emptyLabel();
+    return this.normalized() === null && emptyLabel !== null && emptyLabel.trim() !== ''
+      ? emptyLabel
+      : this.caption();
   });
 
   protected readonly tone = computed<RingTone>(() => {
@@ -163,6 +172,12 @@ export class ScoreRingComponent {
 
   protected readonly ariaLabel = computed(() => {
     const value = this.normalized();
-    return value === null ? 'Score indisponível' : `Score ${value} de 100`;
+    if (value !== null) {
+      return `Score ${value} de 100`;
+    }
+    const emptyLabel = this.emptyLabel();
+    return emptyLabel !== null && emptyLabel.trim() !== ''
+      ? emptyLabel
+      : 'Score indisponível';
   });
 }

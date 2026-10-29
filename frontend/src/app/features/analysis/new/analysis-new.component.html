@@ -77,7 +77,12 @@
       @if (result(); as analysis) {
         <app-card padding="lg">
           <div class="flex flex-col gap-5 sm:flex-row sm:items-start">
-            <app-score-ring [score]="analysis.result?.score ?? null" [size]="104" caption="score" />
+            <app-score-ring
+              [score]="validationSkipped() ? null : (analysis.result?.score ?? null)"
+              [size]="104"
+              caption="score"
+              [emptyLabel]="validationSkipped() ? 'Não avaliado' : null"
+            />
 
             <div class="flex min-w-0 flex-1 flex-col gap-3">
               <div class="flex flex-wrap items-center gap-2">
@@ -97,6 +102,13 @@
                   <span class="text-caption text-muted">{{ confidence }}</span>
                 }
               </div>
+
+              @if (validationSkipped()) {
+                <app-inline-status
+                  tone="warning"
+                  message="Idioma não reconhecido — selecione manualmente."
+                />
+              }
 
               @if (resultSummary(); as summary) {
                 <p class="text-body-sm leading-relaxed text-muted">{{ summary }}</p>

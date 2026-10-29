@@ -82,7 +82,12 @@
         <div class="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
           <app-card padding="lg">
             <div class="flex flex-col items-center gap-3">
-              <app-score-ring [score]="score()" [size]="132" caption="score geral" />
+              <app-score-ring
+                [score]="score()"
+                [size]="132"
+                caption="score geral"
+                [emptyLabel]="validationSkipped() ? 'Não avaliado' : null"
+              />
               <p class="text-center text-caption text-muted">{{ scoreHint() }}</p>
             </div>
           </app-card>

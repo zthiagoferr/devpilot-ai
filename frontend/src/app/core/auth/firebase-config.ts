@@ -7,9 +7,12 @@
  * is intentionally omitted: it only feeds Google Analytics, and this bundle
  * imports no analytics SDK.
  *
- * `window.DevPilotConfig.firebase` may override any value at deploy time; an
- * environment without an `apiKey`/`projectId` keeps the visitor flows working
- * and shows the documented "auth unavailable" degradation.
+ * `window.DevPilotConfig.firebase` may override any value at deploy time. The
+ * override is merged with the defaults below, so disabling authentication in a
+ * deployment requires explicitly setting `apiKey` and `projectId` to empty
+ * strings; an absent override keeps the versioned project. Independently of
+ * that static check, the app degrades at runtime when the SDK bootstrap fails,
+ * so a deployment where Firebase is unreachable never opens a dead login form.
  */
 export interface FirebaseRuntimeConfig {
   readonly apiKey?: string;

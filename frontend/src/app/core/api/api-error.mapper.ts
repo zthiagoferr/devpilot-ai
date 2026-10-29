@@ -18,6 +18,12 @@ export interface ApiErrorOptions {
   readonly fieldErrors?: Readonly<Record<string, string>>;
   readonly retryAfterSeconds?: number | null;
   readonly cause?: unknown;
+  /**
+   * Whether the error body was valid JSON. ``false`` identifies proxy HTML
+   * pages (for example a suspended hosting service) that must not be parsed as
+   * an API contract.
+   */
+  readonly bodyIsJson?: boolean;
 }
 
 export class ApiError extends Error {
@@ -25,6 +31,7 @@ export class ApiError extends Error {
   readonly status: number | null;
   readonly fieldErrors: Readonly<Record<string, string>>;
   readonly retryAfterSeconds: number | null;
+  readonly bodyIsJson: boolean;
 
   constructor(kind: ApiErrorKind, message: string, options: ApiErrorOptions = {}) {
     super(message, { cause: options.cause });
@@ -33,6 +40,7 @@ export class ApiError extends Error {
     this.status = options.status ?? null;
     this.fieldErrors = options.fieldErrors ?? {};
     this.retryAfterSeconds = options.retryAfterSeconds ?? null;
+    this.bodyIsJson = options.bodyIsJson ?? true;
   }
 }
 
@@ -168,12 +176,15 @@ export function mapErrorResponse(
   status: number,
   body: unknown,
   retryAfterHeader?: string | null,
+  bodyIsJson = true,
 ): ApiError {
   const kind = kindForStatus(status);
   const detail = extractDetail(body);
-  const messages = messagesFromDetail(detail);
+  // A non-JSON body (proxy HTML, gateway page) has no contract to parse and
+  // must never leak its markup into the user-facing message.
+  const messages = bodyIsJson ? messagesFromDetail(detail) : [];
   const detailMessage = messages[0] ?? null;
-  const fieldErrors = fieldErrorsFromDetail(detail);
+  const fieldErrors = bodyIsJson ? fieldErrorsFromDetail(detail) : {};
   const retryAfterSeconds = parseRetryAfter(retryAfterHeader);
 
   let message: string;
@@ -217,6 +228,7 @@ export function mapErrorResponse(
     status,
     fieldErrors,
     retryAfterSeconds,
+    bodyIsJson,
   });
 }
 

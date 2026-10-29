@@ -294,6 +294,44 @@ describe('AnalysisNewComponent', () => {
     ).toBe(false);
   });
 
+  it('shows "Não avaliado" instead of 100/100 when validation was skipped', async () => {
+    createAnalysis.mockResolvedValue({
+      ...ADVPL_ANALYSIS,
+      result: {
+        score: 100,
+        summary: 'Language detection did not select a structural validator.',
+        language: 'unknown',
+        language_source: 'fallback',
+        confidence: 0,
+        issues: [
+          {
+            severity: 'info',
+            message: 'Language could not be detected from the file path or content.',
+            cause: 'language_undetected',
+            language: 'unknown',
+            origin: 'validator',
+            analysis_kind: 'heuristic_validation',
+          },
+        ],
+        validation_skipped: true,
+      },
+    });
+    const fixture = TestBed.createComponent(AnalysisNewComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    type(inputByLabel(element, 'Nome do projeto'), 'Desconhecido');
+    type(textareaByLabel(element, 'Código-fonte'), 'prose without code markers');
+    element
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await settle(fixture);
+
+    expect(element.textContent).toContain('Não avaliado');
+    expect(element.textContent).toContain('Idioma não reconhecido — selecione manualmente.');
+    expect(element.textContent).not.toContain('100/100');
+  });
+
   it('does not show the repository result on the paste tab', async () => {
     const fixture = TestBed.createComponent(AnalysisNewComponent);
     fixture.detectChanges();

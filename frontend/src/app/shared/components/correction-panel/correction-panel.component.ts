@@ -398,6 +398,8 @@ function correctionErrorMessage(error: unknown): string {
   switch (error.status) {
     case 503:
       return 'A correção de IA não está configurada no servidor. Configure o provedor de LLM e tente novamente.';
+    case 504:
+      return 'A IA demorou para responder. Tente novamente ou use um arquivo menor.';
     case 502:
       return 'A IA retornou uma correção inválida. Tente novamente em instantes.';
     case 429:
@@ -410,6 +412,9 @@ function correctionErrorMessage(error: unknown): string {
     case 403:
       return 'Sua sessão não permite solicitar esta correção. Entre novamente para continuar.';
     case 422:
+      if (error.message.toLowerCase().includes('safety checks')) {
+        return 'A correção proposta foi rejeitada pelas verificações de segurança.';
+      }
       return `A solicitação de correção é inválida: ${error.message}`;
     default:
       return error.message;

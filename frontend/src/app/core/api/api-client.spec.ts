@@ -206,6 +206,22 @@ describe('ApiClient', () => {
     expect(result.blob.size).toBeGreaterThan(0);
   });
 
+  it('marks a non-JSON proxy error body as unexpected', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('<html><body>Service suspended</body></html>', {
+        status: 503,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    );
+    const api = setup(async () => null);
+
+    await expect(api.getOrchestratorStatus()).rejects.toMatchObject({
+      status: 503,
+      bodyIsJson: false,
+      message: 'A análise falhou no servidor. Tente novamente em instantes.',
+    });
+  });
+
   it('maps an unavailable correction (503) without hiding the status', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ detail: 'AI correction is not configured.' }), {

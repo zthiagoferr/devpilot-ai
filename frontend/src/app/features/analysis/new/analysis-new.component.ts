@@ -122,6 +122,10 @@ export class AnalysisNewComponent {
       : null;
   });
 
+  protected readonly validationSkipped = computed(
+    () => this.result()?.result?.validation_skipped === true,
+  );
+
   protected readonly projectNameError = computed(() => {
     const server = this.fieldErrors()['project_name'];
     if (!this.isVisible(this.submitted(), this.projectNameTouched(), server)) {
@@ -156,6 +160,9 @@ export class AnalysisNewComponent {
     const analysis = this.result();
     if (analysis === null) {
       return null;
+    }
+    if (this.validationSkipped()) {
+      return 'Idioma não reconhecido — selecione manualmente. A análise estrutural não foi executada.';
     }
     return analysisSummaryPtBr({
       summary: analysis.result?.summary,

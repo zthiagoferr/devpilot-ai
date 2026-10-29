@@ -49,6 +49,8 @@ export interface AnalysisResult {
   readonly language_source?: LanguageSource | null;
   readonly confidence?: number | null;
   readonly corrections_available?: boolean | null;
+  /** No structural validator ran; ``score`` is a neutral 100, not an evaluation. */
+  readonly validation_skipped?: boolean | null;
 }
 
 export interface Analysis {

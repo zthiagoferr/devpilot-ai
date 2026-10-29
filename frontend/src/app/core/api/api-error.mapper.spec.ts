@@ -64,6 +64,19 @@ describe('api error mapper', () => {
     expect(seconds).toBeLessThanOrEqual(30);
   });
 
+  it('never renders a non-JSON HTML error body', () => {
+    const error = mapErrorResponse(
+      503,
+      '<html><body>Service suspended</body></html>',
+      null,
+      false,
+    );
+
+    expect(error.bodyIsJson).toBe(false);
+    expect(error.message).not.toContain('<html>');
+    expect(error.message).toContain('A análise falhou no servidor');
+  });
+
   it('maps network failures with a recovery-oriented message', () => {
     const error = mapNetworkError(new TypeError('Failed to fetch'));
 

@@ -7,10 +7,12 @@ import {
   signal,
 } from '@angular/core';
 
-import { ApiClient } from '../../core/api/api-client';
+import { ApiClient, isAbortError } from '../../core/api/api-client';
+import { isApiError } from '../../core/api/api-error.mapper';
 import { ConfigService } from '../../core/config/config.service';
 
 type ServiceState = 'checking' | 'online' | 'degraded' | 'offline' | 'unconfigured';
+type FailureKind = 'http-503' | 'unexpected-response' | 'connection' | 'timeout';
 
 const POLL_INTERVAL_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -21,6 +23,13 @@ const LABELS: Readonly<Record<ServiceState, string>> = {
   degraded: 'API com restrições',
   offline: 'API indisponível',
   unconfigured: 'API não configurada',
+};
+
+const FAILURE_LABELS: Readonly<Record<FailureKind, string>> = {
+  'http-503': 'API indisponível (HTTP 503) — verifique o estado do serviço',
+  'unexpected-response': 'Resposta inesperada da API — verifique o estado do serviço',
+  connection: 'Falha de conexão/CORS com a API',
+  timeout: 'Tempo esgotado ao contatar a API',
 };
 
 /**
@@ -116,7 +125,14 @@ export class ServiceStatusComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly state = signal<ServiceState>('checking');
-  protected readonly label = computed(() => LABELS[this.state()]);
+  private readonly failure = signal<FailureKind | null>(null);
+  protected readonly label = computed(() => {
+    const failure = this.failure();
+    if (this.state() === 'offline' && failure !== null) {
+      return FAILURE_LABELS[failure];
+    }
+    return LABELS[this.state()];
+  });
   protected readonly announcement = signal('');
 
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -164,14 +180,18 @@ export class ServiceStatusComponent {
     this.inFlight = true;
     const controller = new AbortController();
     this.controller = controller;
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
 
     try {
       const status = await this.api.getOrchestratorStatus(controller.signal);
       this.update(status.status === 'ready' ? 'online' : 'degraded');
-    } catch {
+    } catch (error) {
       if (!this.destroyed) {
-        this.update('offline');
+        this.update('offline', classifyFailure(error, timedOut));
       }
     } finally {
       clearTimeout(timeout);
@@ -182,11 +202,38 @@ export class ServiceStatusComponent {
     }
   }
 
-  private update(next: ServiceState): void {
-    if (this.state() === next) {
+  private update(next: ServiceState, failure: FailureKind | null = null): void {
+    if (this.state() === next && this.failure() === failure) {
       return;
     }
     this.state.set(next);
-    this.announcement.set(LABELS[next]);
+    this.failure.set(failure);
+    this.announcement.set(
+      next === 'offline' && failure !== null ? FAILURE_LABELS[failure] : LABELS[next],
+    );
   }
+}
+
+function classifyFailure(error: unknown, timedOut: boolean): FailureKind {
+  if (timedOut || isAbortError(error)) {
+    return 'timeout';
+  }
+  if (!isApiError(error)) {
+    return 'connection';
+  }
+  // An HTML/proxy body (for example a suspended Render service) is not an API
+  // response at all; checking it before the status keeps the diagnosis clear.
+  if (!error.bodyIsJson) {
+    return 'unexpected-response';
+  }
+  if (error.kind === 'invalid-response') {
+    return 'unexpected-response';
+  }
+  if (error.status === 503) {
+    return 'http-503';
+  }
+  if (error.kind === 'network') {
+    return 'connection';
+  }
+  return 'connection';
 }

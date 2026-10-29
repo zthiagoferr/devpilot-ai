@@ -154,11 +154,11 @@ export class ApiClient {
       return undefined as T;
     }
 
-    const payload = await this.readBody(response);
-    if (payload === null) {
+    const { value, isJson } = await this.readBody(response);
+    if (value === null || !isJson) {
       throw mapInvalidResponseError();
     }
-    return payload as T;
+    return value as T;
   }
 
   private async send(
@@ -198,25 +198,31 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      const payload = await this.readBody(response);
-      throw mapErrorResponse(response.status, payload, response.headers.get('Retry-After'));
+      const { value, isJson } = await this.readBody(response);
+      throw mapErrorResponse(
+        response.status,
+        value,
+        response.headers.get('Retry-After'),
+        isJson,
+      );
     }
 
     return response;
   }
 
-  private async readBody(response: Response): Promise<unknown> {
+  private async readBody(response: Response): Promise<{ value: unknown; isJson: boolean }> {
     const text = await response.text();
     if (text.trim() === '') {
-      return null;
+      return { value: null, isJson: true };
     }
     try {
-      return JSON.parse(text) as unknown;
+      return { value: JSON.parse(text) as unknown, isJson: true };
     } catch (error) {
       if (!response.ok) {
         // Non-JSON error bodies (proxy HTML, gateway timeouts) still produce a
-        // readable message through the status-specific mapper.
-        return text;
+        // readable message through the status-specific mapper; the raw body is
+        // preserved only so the mapper can mark it as unexpected.
+        return { value: text, isJson: false };
       }
       throw mapInvalidResponseError(error);
     }
