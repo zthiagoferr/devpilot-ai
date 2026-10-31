@@ -28,7 +28,10 @@ export const appConfig: ApplicationConfig = {
       // The bearer token is read immediately before every API request; Firebase
       // refreshes it when it is close to expiry. `null` means "visitor".
       provide: AUTH_TOKEN_PROVIDER,
-      useFactory: (auth: AuthService) => () => auth.getToken(),
+      useFactory:
+        (auth: AuthService) =>
+        (force = false) =>
+          auth.getToken(force),
       deps: [AuthService],
     },
     // Starts restoring the Firebase session before the first screen renders.

@@ -1,5 +1,6 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 
+import { resolveScoreStatus } from '../../shared/utils/pt-br-messages';
 import { ApiClient, isAbortError } from '../api/api-client';
 import { isApiError } from '../api/api-error.mapper';
 import { Analysis } from '../api/api.types';
@@ -121,9 +122,17 @@ export function sortAnalyses(items: readonly Analysis[]): readonly Analysis[] {
   return [...items].sort((left, right) => timestampOf(right) - timestampOf(left));
 }
 
-/** Mean of the finite scores, ignoring analyses without a score. */
+/** Mean of the finite scores of evaluated analyses.
+ *
+ * Skipped and unavailable analyses carry a neutral 100 or an error-driven 90
+ * that are not measurements, so they never participate in the average.
+ */
 export function averageScoreOf(items: readonly Analysis[]): number | null {
   const scores = items
+    .filter((item) => {
+      const status = resolveScoreStatus(item.result?.score_status, item.result?.validation_skipped);
+      return status === 'evaluated' || status === 'partial';
+    })
     .map((item) => item.result?.score)
     .filter((score): score is number => typeof score === 'number' && Number.isFinite(score));
 

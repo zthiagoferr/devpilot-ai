@@ -79,6 +79,37 @@
   min-width: 0;
 }
 
+.issue-list__bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 16px;
+  padding: 12px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background-color: #141414;
+}
+
+.issue-list__bulk-text {
+  min-width: 0;
+  color: #a3a3a3;
+  font-size: var(--text-caption);
+  line-height: 1.5;
+}
+
+.issue-list__full-panel {
+  min-width: 0;
+  margin-block-start: 20px;
+  padding-block-start: 20px;
+  border-block-start: 1px solid var(--color-border-soft);
+}
+
+.issue-list__full-panel[hidden] {
+  display: none;
+}
+
 .issue-list__disclaimer {
   margin-block-end: 12px;
   padding: 8px 12px;

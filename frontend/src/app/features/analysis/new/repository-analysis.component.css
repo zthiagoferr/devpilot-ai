@@ -158,6 +158,116 @@
   overflow-wrap: anywhere;
 }
 
+.repo-form__batch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #262626;
+  border-radius: var(--radius-md);
+  background-color: #080808;
+}
+
+.repo-form__batch-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #262626;
+  border-radius: var(--radius-sm);
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.repo-form__batch-list > li + li {
+  border-block-start: 1px solid #1f1f1f;
+}
+
+.batch-option {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.batch-option:hover {
+  background-color: #141414;
+}
+
+.batch-option:focus-within {
+  outline: 2px solid #fafafa;
+  outline-offset: -2px;
+}
+
+.batch-option input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-block-start: 2px;
+  accent-color: #fafafa;
+  cursor: pointer;
+}
+
+.batch-option input:disabled {
+  cursor: not-allowed;
+}
+
+.batch-option__body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.batch-option__path {
+  color: #fafafa;
+  font-size: var(--text-body-sm);
+  overflow-wrap: anywhere;
+}
+
+.batch-option__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-form__batch-selected {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.repo-form__batch-selected-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.repo-form__batch-selected-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid #262626;
+  border-radius: var(--radius-sm);
+  color: #fafafa;
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+
 @media (min-width: 768px) {
   .repo-form__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

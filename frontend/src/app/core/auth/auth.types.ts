@@ -8,6 +8,8 @@ export interface AuthUser {
   readonly email: string | null;
   readonly displayName: string | null;
   readonly emailVerified: boolean;
+  /** True for anonymous (guest) sessions. */
+  readonly isAnonymous: boolean;
 }
 
 export type AuthStatus = 'idle' | 'loading' | 'ready' | 'unconfigured' | 'error';
@@ -15,20 +17,47 @@ export type AuthStatus = 'idle' | 'loading' | 'ready' | 'unconfigured' | 'error'
 export interface AuthResult {
   readonly ok: boolean;
   readonly message: string;
+  /** Optional presentation hint; success when omitted. */
+  readonly tone?: 'success' | 'warning';
 }
 
+/** Projects a Firebase user into the UI-facing shape. */
 export function userFromFirebase(user: {
   uid: string;
   email: string | null;
   displayName: string | null;
   emailVerified: boolean;
+  isAnonymous?: boolean;
 }): AuthUser {
   return {
     uid: user.uid,
     email: user.email,
     displayName: user.displayName,
     emailVerified: user.emailVerified,
+    isAnonymous: user.isAnonymous ?? false,
   };
+}
+
+/** True only for a non-anonymous account with an unconfirmed e-mail. */
+export function needsEmailVerification(user: AuthUser | null): boolean {
+  return user !== null && !user.isAnonymous && (user.email ?? '') !== '' && !user.emailVerified;
+}
+
+/** Field-by-field comparison used to avoid redundant signal writes. */
+export function sameAuthUser(a: AuthUser | null, b: AuthUser | null): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  return (
+    a.uid === b.uid &&
+    a.email === b.email &&
+    a.displayName === b.displayName &&
+    a.emailVerified === b.emailVerified &&
+    a.isAnonymous === b.isAnonymous
+  );
 }
 
 /** Two-letter avatar label: display name, else e-mail, else "V" (visitor). */

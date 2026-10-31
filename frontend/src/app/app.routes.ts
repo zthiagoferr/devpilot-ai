@@ -30,6 +30,24 @@ export const routes: Routes = [
       ),
   },
 
+  {
+    path: 'how-it-works',
+    title: 'Como funciona? — DevPilot AI',
+    loadComponent: () =>
+      import('./features/how-it-works/how-it-works.component').then(
+        (module) => module.HowItWorksComponent,
+      ),
+  },
+
+  {
+    path: 'documentation',
+    title: 'Documentação — DevPilot AI',
+    loadComponent: () =>
+      import('./features/documentation/documentation.component').then(
+        (module) => module.DocumentationComponent,
+      ),
+  },
+
   // Redirects kept for links shared from the legacy dashboard hash routes.
   { path: 'analysis', pathMatch: 'full', redirectTo: 'analysis/new' },
   { path: 'new-analysis', pathMatch: 'full', redirectTo: 'analysis/new' },

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClient } from '../api/api-client';
 import { ApiError } from '../api/api-error.mapper';
-import { Analysis } from '../api/api.types';
+import { Analysis, AnalysisResult } from '../api/api.types';
 import { AuthService } from '../auth/auth.service';
 import { LoginPromptService } from '../auth/login-prompt.service';
 import { HistoryStore } from './history-store';
@@ -14,6 +14,7 @@ function analysis(
   createdAt: string,
   score: number | null | undefined,
   project = `projeto-${id}`,
+  details: Partial<AnalysisResult> = {},
 ): Analysis {
   return {
     id,
@@ -21,7 +22,7 @@ function analysis(
     project_name: project,
     source_code: 'print(1)',
     repository_url: null,
-    result: score === undefined ? null : { score },
+    result: score === undefined ? null : { score, ...details },
     status: 'completed',
     created_at: createdAt,
   };
@@ -86,6 +87,58 @@ describe('HistoryStore', () => {
     listAnalyses.mockResolvedValue([
       analysis('a', '2026-01-01T10:00:00Z', null),
       analysis('b', '2026-01-02T10:00:00Z', undefined),
+    ]);
+
+    const store = setup();
+    await store.load();
+
+    expect(store.averageScore()).toBeNull();
+  });
+
+  it('excludes skipped and unavailable scores from the average', async () => {
+    listAnalyses.mockResolvedValue([
+      analysis('evaluated', '2026-01-01T10:00:00Z', 80, 'avaliada', {
+        score_status: 'evaluated',
+      }),
+      // Unknown language: the neutral 100 is not an evaluation.
+      analysis('skipped', '2026-01-02T10:00:00Z', 100, 'ignorada', {
+        score_status: 'skipped',
+        validation_skipped: true,
+      }),
+      // Validator failure: the 90 reflects the error, not the code.
+      analysis('unavailable', '2026-01-03T10:00:00Z', 90, 'indisponivel', {
+        score_status: 'unavailable',
+      }),
+    ]);
+
+    const store = setup();
+    await store.load();
+
+    expect(store.averageScore()).toBe(80);
+  });
+
+  it('keeps the legacy validation_skipped flag out of the average', async () => {
+    listAnalyses.mockResolvedValue([
+      analysis('evaluated', '2026-01-01T10:00:00Z', 70),
+      analysis('legacy-skipped', '2026-01-02T10:00:00Z', 100, 'legado', {
+        validation_skipped: true,
+      }),
+    ]);
+
+    const store = setup();
+    await store.load();
+
+    expect(store.averageScore()).toBe(70);
+  });
+
+  it('returns null when every analysis was skipped or unavailable', async () => {
+    listAnalyses.mockResolvedValue([
+      analysis('skipped', '2026-01-01T10:00:00Z', 100, 'ignorada', {
+        score_status: 'skipped',
+      }),
+      analysis('unavailable', '2026-01-02T10:00:00Z', 90, 'indisponivel', {
+        score_status: 'unavailable',
+      }),
     ]);
 
     const store = setup();

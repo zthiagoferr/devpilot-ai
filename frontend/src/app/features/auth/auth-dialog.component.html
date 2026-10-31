@@ -12,21 +12,37 @@
           <span class="auth-verify__email">{{ email }}</span>
         }
       </p>
-      <app-button
-        size="sm"
-        variant="secondary"
-        [loading]="submitting()"
-        (click)="resendVerification()"
-      >
-        Reenviar confirmação
-      </app-button>
+      <div class="auth-verify__actions">
+        <app-button
+          size="sm"
+          variant="secondary"
+          [loading]="pendingAction() === 'verification'"
+          [disabled]="busy() || resendSeconds() > 0"
+          (click)="resendVerification()"
+        >
+          @if (resendSeconds() > 0) {
+            Reenviar em {{ resendSeconds() }}s
+          } @else {
+            Reenviar confirmação
+          }
+        </app-button>
+        <app-button
+          size="sm"
+          variant="ghost"
+          [loading]="pendingAction() === 'verify-check'"
+          [disabled]="busy()"
+          (click)="confirmVerification()"
+        >
+          Já confirmei
+        </app-button>
+      </div>
     </div>
   }
 
   <form
     class="auth-form"
     novalidate
-    [attr.aria-busy]="submitting() ? 'true' : null"
+    [attr.aria-busy]="busy() ? 'true' : null"
     (submit)="submit($event)"
   >
     <app-input
@@ -59,25 +75,63 @@
       <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
     }
 
-    <app-button type="submit" [fullWidth]="true" [loading]="submitting()" [disabled]="!available()">
+    <app-button
+      type="submit"
+      [fullWidth]="true"
+      [loading]="busy()"
+      [disabled]="!available() || busy()"
+    >
       <app-icon name="lock" [size]="15" />
       {{ submitLabel() }}
     </app-button>
   </form>
 
+  @if (auth.status() === 'error') {
+    <div class="auth-recover">
+      <app-button
+        type="button"
+        variant="secondary"
+        [fullWidth]="true"
+        [loading]="pendingAction() === 'bootstrap'"
+        [disabled]="busy()"
+        (click)="retryBootstrap()"
+      >
+        <app-icon name="history" [size]="16" />
+        Tentar novamente
+      </app-button>
+    </div>
+  }
+
   @if (!isReset()) {
     <div class="auth-divider" aria-hidden="true"><span>ou</span></div>
 
-    <app-button
-      variant="secondary"
-      [fullWidth]="true"
-      [loading]="submitting()"
-      [disabled]="!available()"
-      (click)="signInWithGithub()"
-    >
-      <app-icon name="gitBranch" [size]="16" />
-      Entrar com GitHub
-    </app-button>
+    <div class="auth-providers">
+      @for (provider of auth.providers(); track provider.id) {
+        <app-button
+          variant="secondary"
+          [fullWidth]="true"
+          [loading]="pendingAction() === provider.id"
+          [disabled]="!available() || busy()"
+          (click)="signInWithProvider(provider.id)"
+        >
+          <app-icon [name]="provider.icon" [size]="16" />
+          Entrar com {{ provider.label }}
+        </app-button>
+      }
+    </div>
+
+    @if (!auth.isAuthenticated()) {
+      <app-button
+        variant="ghost"
+        [fullWidth]="true"
+        [loading]="pendingAction() === 'anonymous'"
+        [disabled]="!available() || busy()"
+        (click)="continueAsGuest()"
+      >
+        <app-icon name="sparkles" [size]="16" />
+        Continuar como visitante
+      </app-button>
+    }
   }
 
   <nav class="auth-switch" aria-label="Outras opções de acesso">

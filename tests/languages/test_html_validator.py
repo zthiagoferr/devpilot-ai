@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from app.languages.base import ValidationContext
 from app.languages.validators.html import HtmlValidator
+from tests.fixtures import manual_samples
 
 VALID_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Example</title>
 </head>
 <body>
   <h1>Title</h1>
@@ -131,7 +133,7 @@ def test_unclosed_tag_is_high() -> None:
 
     assert len(unclosed) == 1
     assert unclosed[0].severity == "high"
-    assert unclosed[0].line == 7
+    assert unclosed[0].line == 8
 
 
 def test_unexpected_closing_tag_is_high() -> None:
@@ -160,7 +162,7 @@ def test_missing_reference_when_tree_is_complete() -> None:
 
     assert len(missing) == 1
     assert missing[0].severity == "high"
-    assert missing[0].line == 5
+    assert missing[0].line == 6
 
 
 def test_resolved_reference_is_silent() -> None:
@@ -284,3 +286,136 @@ def test_crlf_and_bom_do_not_create_false_positives() -> None:
     result = validate(source)
 
     assert result.issues == ()
+
+
+def test_manual_gaps_are_reported_once_each() -> None:
+    result = validate(manual_samples.MANUAL_HTML_GAPS)
+    result_causes = causes(result)
+
+    assert result_causes.count("missing_title") == 1
+    assert result_causes.count("unsafe_target_blank") == 1
+    assert result_causes.count("button_without_label") == 1
+    # The pre-existing checks keep firing on the same document.
+    assert "missing_alt" in result_causes
+    assert "missing_label" in result_causes
+
+    by_cause = {issue.cause: issue for issue in result.issues}
+    assert by_cause["missing_title"].severity == "low"
+    assert by_cause["unsafe_target_blank"].severity == "low"
+    assert by_cause["button_without_label"].severity == "low"
+
+
+def test_missing_title_is_low() -> None:
+    source = VALID_HTML.replace("  <title>Example</title>\n", "")
+    result = validate(source)
+    title = [issue for issue in result.issues if issue.cause == "missing_title"]
+
+    assert len(title) == 1
+    assert title[0].severity == "low"
+
+
+def test_present_title_is_silent() -> None:
+    result = validate(VALID_HTML)
+    assert "missing_title" not in causes(result)
+
+
+def test_target_blank_without_noopener_is_low() -> None:
+    source = VALID_HTML.replace(
+        "</body>",
+        '<a href="https://example.com" target="_blank">site</a>\n</body>',
+    )
+    result = validate(source)
+    unsafe = [issue for issue in result.issues if issue.cause == "unsafe_target_blank"]
+
+    assert len(unsafe) == 1
+    assert unsafe[0].severity == "low"
+    assert unsafe[0].line == 12
+
+
+def test_target_blank_with_rel_noopener_or_noreferrer_is_silent() -> None:
+    source = VALID_HTML.replace(
+        "</body>",
+        (
+            '<a href="https://example.com" target="_blank" rel="noopener">a</a>\n'
+            '<a href="https://example.com" target="_blank" rel="noreferrer">b</a>\n'
+            '<a href="https://example.com" target="_blank"'
+            ' rel="noopener noreferrer">c</a>\n'
+            '<a href="/local">d</a>\n'
+            "</body>"
+        ),
+    )
+    result = validate(source)
+    assert "unsafe_target_blank" not in causes(result)
+
+
+def test_button_without_text_or_aria_label_is_low() -> None:
+    source = VALID_HTML.replace("</body>", "<button></button>\n</body>")
+    result = validate(source)
+    buttons = [
+        issue for issue in result.issues if issue.cause == "button_without_label"
+    ]
+
+    assert len(buttons) == 1
+    assert buttons[0].severity == "low"
+    assert buttons[0].line == 12
+
+
+def test_button_with_text_child_or_aria_label_is_silent() -> None:
+    source = VALID_HTML.replace(
+        "</body>",
+        (
+            "<button>Save</button>\n"
+            '<button aria-label="Close"></button>\n'
+            "<button><span>OK</span></button>\n"
+            "</body>"
+        ),
+    )
+    result = validate(source)
+    assert "button_without_label" not in causes(result)
+
+
+def test_button_labeled_by_child_image_alt_or_descendant_aria_label_is_silent() -> None:
+    source = VALID_HTML.replace(
+        "</body>",
+        (
+            '<button><img src="close.svg" alt="Close"></button>\n'
+            '<button><span aria-label="Search"></span></button>\n'
+            "</body>"
+        ),
+    )
+    result = validate(source)
+    assert "button_without_label" not in causes(result)
+
+
+def test_button_with_image_without_alt_still_reports_missing_label() -> None:
+    source = VALID_HTML.replace(
+        "</body>", '<button><img src="close.svg"></button>\n</body>'
+    )
+    result = validate(source)
+    result_causes = causes(result)
+
+    assert result_causes.count("button_without_label") == 1
+    assert "missing_alt" in result_causes
+
+
+def test_svg_title_does_not_satisfy_document_title() -> None:
+    source = VALID_HTML.replace(
+        "  <title>Example</title>\n",
+        "",
+    ).replace(
+        "<img src=\"logo.png\" alt=\"Logo\">",
+        '<svg><title>Icon</title></svg><img src="logo.png" alt="Logo">',
+    )
+    result = validate(source)
+    result_causes = causes(result)
+
+    assert result_causes.count("missing_title") == 1
+    assert result_causes.count("unclosed_tag") == 0
+
+
+def test_coverage_metadata_declares_new_checks() -> None:
+    coverage = validate(VALID_HTML).metadata["coverage"]
+
+    for check in ("document_metadata", "link_targets"):
+        assert check in coverage["checks"]
+    assert coverage["limitations"]

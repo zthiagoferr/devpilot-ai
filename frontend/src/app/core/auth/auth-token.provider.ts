@@ -5,8 +5,10 @@ import { InjectionToken } from '@angular/core';
  *
  * Firebase refreshes an ID token shortly before it expires, so the API client
  * asks for the token immediately before every request instead of caching one.
+ * `forceRefresh` bypasses the Firebase cache for flows that require a fresh
+ * token (for example right after a sensitive action).
  */
-export type AuthTokenProvider = () => Promise<string | null>;
+export type AuthTokenProvider = (forceRefresh?: boolean) => Promise<string | null>;
 
 /**
  * Extension point for the Firebase session introduced in F5.

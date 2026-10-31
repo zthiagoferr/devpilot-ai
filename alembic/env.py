@@ -33,6 +33,17 @@ _METADATA_MODULES = (
 # Safe development default, kept in sync with app.db.session.
 _DEFAULT_DEVELOPMENT_DATABASE_URL = "sqlite+aiosqlite:///./dev.db"
 
+# Kept in sync with app.db.session._PRODUCTION_DATABASE_URL_ERROR.  It is
+# duplicated instead of imported because the only code path that needs it is
+# the one where importing app.db.session already failed; importing the constant
+# from that module would fail for the same reason.  The message is deliberately
+# free of the URL, driver, host, user, or password, and
+# tests/test_alembic_env_guard.py asserts both copies stay identical.
+_PRODUCTION_DATABASE_URL_ERROR = (
+    "DATABASE_URL must be configured with a PostgreSQL URL in production."
+)
+_PRODUCTION_ENVIRONMENTS = frozenset({"production", "prod"})
+
 
 def _load_metadata() -> Any:
     """Load the ORM metadata without initializing a database connection."""
@@ -76,30 +87,63 @@ def _settings_database_url() -> str | None:
     return value or None
 
 
+def _environment_name() -> str:
+    """Return the environment name used by the production URL guard."""
+    try:
+        from app.core.config import get_settings
+    except ImportError:
+        value = os.getenv("ENVIRONMENT")
+    else:
+        value = get_settings().environment
+    return (value or "development").strip().lower()
+
+
+def _validate_database_url(value: str) -> str:
+    """Reject non-PostgreSQL URLs in production before any migration runs.
+
+    The application helper is imported lazily.  If that import fails (for
+    example, a deployment ships migrations without the application package),
+    the guard fails closed: production still raises the fixed error, so a
+    non-PostgreSQL URL can never reach Alembic, while non-production keeps the
+    previous permissive behavior.
+    """
+    try:
+        from app.db.session import validate_migration_database_url
+    except ImportError:
+        if _environment_name() in _PRODUCTION_ENVIRONMENTS:
+            raise RuntimeError(_PRODUCTION_DATABASE_URL_ERROR) from None
+        return value
+    return validate_migration_database_url(value, _environment_name())
+
+
 def _get_database_url() -> str:
-    """Return the unredacted database URL used by Alembic.
+    """Return the validated, unredacted database URL used by Alembic.
 
     Resolution order matches the application: explicit settings first, then the
     ``DATABASE_URL`` environment variable, then the safe development default
-    used by :mod:`app.db.session`.
+    used by :mod:`app.db.session`. Every candidate — including the fallback —
+    goes through :func:`_validate_database_url`, so a production run without a
+    PostgreSQL URL fails before creating an engine, a file, or SQL output.
     """
     try:
         value = _settings_database_url()
     except ImportError:
         value = None
-    if value:
-        return value
 
-    value = os.getenv("DATABASE_URL")
-    if value and value.strip():
-        return value.strip()
+    if not value:
+        value = os.getenv("DATABASE_URL")
+        if value:
+            value = value.strip() or None
 
-    try:
-        from app.db.session import DEFAULT_DEVELOPMENT_DATABASE_URL
+    if not value:
+        try:
+            from app.db.session import DEFAULT_DEVELOPMENT_DATABASE_URL
 
-        return DEFAULT_DEVELOPMENT_DATABASE_URL
-    except ImportError:
-        return _DEFAULT_DEVELOPMENT_DATABASE_URL
+            value = DEFAULT_DEVELOPMENT_DATABASE_URL
+        except ImportError:
+            value = _DEFAULT_DEVELOPMENT_DATABASE_URL
+
+    return _validate_database_url(value)
 
 
 def _prepare_database_url(value: str) -> tuple[str, dict[str, object]]:

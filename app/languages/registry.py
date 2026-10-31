@@ -8,6 +8,7 @@ stable result instead of propagating an exception into the API.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -22,22 +23,16 @@ from app.languages.base import (
     ValidationContext,
     ValidationResult,
     compute_score,
+    copy_coverage,
 )
 from app.languages.detector import detect_language
-from app.languages.validators.advpl import AdvplValidator
-from app.languages.validators.css import CssValidator
-from app.languages.validators.html import HtmlValidator
-from app.languages.validators.javascript import JavascriptValidator
-from app.languages.validators.python import PythonValidator
+from app.languages.spec import SPECS
 
 logger = logging.getLogger(__name__)
 
+#: Language -> validator instance, derived from :data:`SPECS`.
 _VALIDATORS: dict[str, LanguageValidator] = {
-    "python": PythonValidator(),
-    "advpl": AdvplValidator(),
-    "html": HtmlValidator(),
-    "css": CssValidator(),
-    "javascript": JavascriptValidator(),
+    language: spec.create_validator() for language, spec in SPECS.items()
 }
 
 
@@ -112,10 +107,22 @@ def validate_source(
             issues=issues,
             score=compute_score(issues),
             summary="Structural validation could not be completed.",
-            metadata={"validator": None},
+            metadata={
+                "validator": None,
+                "score_status": "unavailable",
+            },
         )
 
-    result = replace(result, detection=detection)
+    # A validator actually ran, so the score is an evaluation rather than a
+    # neutral 100. The explicit flag lets the UI distinguish this case from an
+    # unknown language whose informational issue has zero severity weight.
+    metadata: dict[str, Any] = dict(result.metadata)
+    metadata["validation_skipped"] = False
+    metadata["score_status"] = "evaluated"
+    coverage = _coverage_for(validator, result)
+    if coverage is not None:
+        metadata["coverage"] = coverage
+    result = replace(result, detection=detection, metadata=metadata)
     if (
         CANDIDATE_CONFIDENCE_FLOOR
         <= detection.confidence
@@ -168,6 +175,7 @@ def _unknown_result(
         metadata={
             "validator": None,
             "validation_skipped": True,
+            "score_status": "skipped",
             "detection_reason": detection.reason,
         },
     )
@@ -190,12 +198,30 @@ def _flag_low_confidence(
     issues = (issue,) + tuple(result.issues)
     metadata: dict[str, Any] = dict(result.metadata)
     metadata["low_confidence"] = True
+    metadata["score_status"] = "partial"
     return replace(
         result,
         issues=issues,
         score=compute_score(issues),
         metadata=metadata,
     )
+
+
+def _coverage_for(
+    validator: LanguageValidator,
+    result: ValidationResult,
+) -> dict[str, Any] | None:
+    """Return the validator's declared coverage, if any.
+
+    Validators may expose coverage through their result metadata or as a class
+    attribute; both are accepted so adding coverage is purely additive.
+    """
+    declared = result.metadata.get("coverage")
+    if not isinstance(declared, Mapping):
+        declared = getattr(validator, "coverage", None)
+    if not isinstance(declared, Mapping):
+        return None
+    return copy_coverage(declared)
 
 
 __all__ = [

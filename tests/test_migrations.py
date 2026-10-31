@@ -34,6 +34,8 @@ def _config() -> Config:
 def _run(db_path: Path, monkeypatch, action: str, target: str) -> None:
     """Run ``upgrade``/``downgrade`` against the throwaway database."""
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    # Keep the round-trip independent from the ambient shell/CI environment.
+    monkeypatch.setenv("ENVIRONMENT", "development")
     get_settings.cache_clear()
     try:
         if action == "upgrade":

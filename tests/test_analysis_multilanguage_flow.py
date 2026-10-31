@@ -68,6 +68,9 @@ def test_agents_code_javascript_issue_has_structural_fields() -> None:
     assert data["language_source"] == "extension"
     assert data["confidence"] == 0.95
     assert data["corrections_available"] is True
+    assert data["score_status"] == "evaluated"
+    assert "delimiters" in data["coverage"]["checks"]
+    assert data["coverage"]["limitations"]
 
     issue = data["issues"][0]
     assert issue["severity"] == "medium"
@@ -112,6 +115,43 @@ def test_agents_code_detects_language_from_content(
     assert data["confidence"] > 0.6
 
 
+def test_agents_code_minimal_javascript_function_is_javascript() -> None:
+    """The reproduced snippet must not be routed to the ADVPL validator.
+
+    A bare ``function`` header is idiomatic JavaScript; before the detector
+    weighting fix it outranked the JavaScript markers and produced a false
+    ``unclosed_block`` ADVPL issue.
+    """
+    from app.main import app
+
+    client = TestClient(app)
+    source = (
+        "function check(value) {\n"
+        "  if (value = 10) {\n"
+        "    return true;\n"
+        "  }\n"
+        "  return value;\n"
+        "}\n"
+    )
+    response = client.post(
+        "/agents/code",
+        json={
+            "project_name": "js-without-extension",
+            "source_code": source,
+            "language": "auto",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["language"] == "javascript"
+    assert data["language_source"] == "content"
+    assert data["confidence"] == 0.68
+    assert not any(
+        issue["cause"] == "unclosed_block" for issue in data["issues"]
+    )
+
+
 def test_agents_code_enriches_the_python_syntax_issue() -> None:
     from app.main import app
 
@@ -129,6 +169,9 @@ def test_agents_code_enriches_the_python_syntax_issue() -> None:
     assert data["agent"] == "code_agent"
     assert data["language"] == "python"
     assert data["score"] == 0
+    # The Python flow predates structural coverage; it keeps the historical
+    # "evaluated" default until Phase B wires the PythonValidator.
+    assert data["score_status"] == "evaluated"
 
     # The legacy fields keep their exact values; the additive fields explain
     # the cause and the precise location without changing the historical ones.
@@ -183,6 +226,8 @@ def test_create_analysis_with_repository_context_adds_relations_only(
     assert result["language"] == "javascript"
     assert result["score"] == 100
     assert result["issues"] == []
+    assert result["score_status"] == "evaluated"
+    assert result["coverage"]["javascript"]["score_status"] == "evaluated"
 
     relations = result["relations"]
     assert relations["version"] == 1
@@ -225,9 +270,81 @@ def test_create_analysis_multilanguage_full_analysis_uses_the_report_agent(
     assert result["language_source"] == "extension"
     assert result["score"] == 50
     assert result["issues"]
+    assert result["score_status"] == "evaluated"
+    assert result["coverage"]["css"]["checks"]
     assert result["report"]["agent"] == "language_report_agent"
     assert list(result["report"]["analyses"]) == ["css"]
     assert "relations" not in result
+
+
+def test_unknown_language_analysis_is_flagged_as_not_evaluated(
+    analysis_client,
+) -> None:
+    client = analysis_client
+
+    response = client.post(
+        "/analyses",
+        json={
+            "task": "code_analysis",
+            "project_name": "unknown-project",
+            "source_code": "prose without code markers\n",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    result = response.json()["result"]
+
+    assert result["language"] == "unknown"
+    assert result["validation_skipped"] is True
+    assert result["score_status"] == "skipped"
+    assert result["score"] == 100
+    assert result["coverage"]["unknown"]["score_status"] == "skipped"
+    assert result["report"]["analyses"]["unknown"]["validation_skipped"] is True
+
+
+def test_short_advpl_snippet_is_auto_detected_and_blocks_are_checked(
+    analysis_client,
+) -> None:
+    client = analysis_client
+
+    response = client.post(
+        "/analyses",
+        json={
+            "task": "code_analysis",
+            "project_name": "reproduced-advpl",
+            "source_code": 'If nX > 1\n    MsgInfo("positivo")\n',
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    result = response.json()["result"]
+
+    assert result["language"] == "advpl"
+    assert result["validation_skipped"] is False
+    assert any(
+        issue["cause"] == "unclosed_block" for issue in result["issues"]
+    )
+
+
+def test_detected_advpl_analysis_is_not_flagged_as_skipped(
+    analysis_client,
+) -> None:
+    client = analysis_client
+
+    response = client.post(
+        "/analyses",
+        json={
+            "task": "code_analysis",
+            "project_name": "advpl-project",
+            "source_code": "User Function X()\nLocal a := 1\nReturn a\n",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    result = response.json()["result"]
+
+    assert result["language"] == "advpl"
+    assert result["validation_skipped"] is False
 
 
 @pytest.mark.parametrize(

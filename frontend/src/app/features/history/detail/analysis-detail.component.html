@@ -86,9 +86,12 @@
                 [score]="score()"
                 [size]="132"
                 caption="score geral"
-                [emptyLabel]="validationSkipped() ? 'Não avaliado' : null"
+                [emptyLabel]="scoreEmptyLabel()"
               />
               <p class="text-center text-caption text-muted">{{ scoreHint() }}</p>
+              @if (structuralNote(); as note) {
+                <p class="text-center text-caption text-muted">{{ note }}</p>
+              }
             </div>
           </app-card>
 
@@ -131,6 +134,12 @@
             }
           </div>
         </app-card>
+
+        @if (coverage(); as coverageData) {
+          <app-card padding="lg">
+            <app-coverage-summary [coverage]="coverageData" />
+          </app-card>
+        }
 
         @defer (on viewport) {
           <app-card padding="lg">

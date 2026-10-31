@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from openai import AsyncOpenAI
 
-from app.llm.base import LLMProvider, LLMResponse
+from app.llm.base import IncompleteLLMResponseError, LLMProvider, LLMResponse
 
 
 class OpenCodeProvider(LLMProvider):
@@ -54,6 +54,13 @@ class OpenCodeProvider(LLMProvider):
             model=self._model,
             input=input_messages,
         )
+
+        status = getattr(response, "status", None)
+        incomplete_details = getattr(response, "incomplete_details", None)
+        if status == "incomplete" or incomplete_details is not None:
+            raise IncompleteLLMResponseError(
+                "The AI provider returned an incomplete response."
+            )
 
         return LLMResponse(
             content=response.output_text,

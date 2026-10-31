@@ -56,6 +56,9 @@ export class IssueListComponent {
 
   private readonly listId = createFieldId('issues');
   protected readonly openIndex = signal<number | null>(null);
+  protected readonly fullPanelOpen = signal(false);
+  protected readonly fullBusy = signal(false);
+  protected readonly fullRequestToken = signal(0);
   private lastIssues: readonly AnalysisIssue[] | null = null;
 
   constructor() {
@@ -69,6 +72,11 @@ export class IssueListComponent {
       }
       this.lastIssues = issues;
       this.openIndex.set(null);
+      this.fullPanelOpen.set(false);
+      this.fullBusy.set(false);
+      // A stale token would make a freshly created full panel auto-request as
+      // soon as a new list is rendered for the same component instance.
+      this.fullRequestToken.set(0);
     });
   }
 
@@ -92,6 +100,23 @@ export class IssueListComponent {
 
   protected canCorrect(): boolean {
     return this.showCorrection() && this.source().trim() !== '';
+  }
+
+  /**
+   * Open the single full-mode panel and ask it to run one correction for every
+   * listed issue. The token is what the panel observes; the header button owns
+   * the loading/disabled state through `busyChange`.
+   */
+  protected requestAllCorrections(): void {
+    if (!this.canCorrect() || this.fullBusy() || this.issues().length === 0) {
+      return;
+    }
+    this.fullPanelOpen.set(true);
+    this.fullRequestToken.update((value) => value + 1);
+  }
+
+  protected onFullBusy(busy: boolean): void {
+    this.fullBusy.set(busy);
   }
 
   protected issueCause(issue: AnalysisIssue): string {

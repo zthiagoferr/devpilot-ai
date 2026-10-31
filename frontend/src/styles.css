@@ -323,3 +323,388 @@
     text-wrap: pretty;
   }
 }
+
+
+/* DevPilot AI / CINEMATIC PREVIEW V3 — visual-only, safely scoped to shell. */
+@layer utilities {
+  @keyframes dp-aurora-drift {
+    0%,100% { transform: translate3d(-3%, 2%, 0) scale(1); opacity: .5; }
+    50% { transform: translate3d(7%, -6%, 0) scale(1.14); opacity: .85; }
+  }
+  @keyframes dp-grid-drift {
+    0% { background-position: 0 0; }
+    100% { background-position: 48px 48px; }
+  }
+  @keyframes dp-card-arrive {
+    from { opacity: 0; transform: translate3d(0, 22px, 0) scale(.988); filter: blur(3px); }
+    to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+  }
+  @keyframes dp-nav-beacon {
+    0%,100% { box-shadow: 0 0 5px rgb(255 255 255 / .3); }
+    50% { box-shadow: 0 0 19px rgb(255 255 255 / .86); }
+  }
+  @keyframes dp-title-glint {
+    0%, 12% { background-position: 180% center; }
+    42%,100% { background-position: -120% center; }
+  }
+}
+
+/* Decorative motion lives behind the whole workspace — no intercepting clicks. */
+app-shell .content { isolation: isolate; background-color: #090a0d; }
+app-shell .content::before {
+  content: ''; position: fixed; z-index: -1; pointer-events: none;
+  inset: -25vh -20vw;
+  background: radial-gradient(ellipse 35% 34% at 28% 23%, rgb(72 93 125 / .24), transparent 78%),
+              radial-gradient(ellipse 35% 36% at 78% 70%, rgb(108 89 126 / .17), transparent 80%),
+              radial-gradient(ellipse 28% 25% at 62% 18%, rgb(255 255 255 / .065), transparent 80%);
+  animation: dp-aurora-drift 16s ease-in-out infinite; will-change: transform;
+}
+app-shell .content::after {
+  content: ''; position: fixed; z-index: -1; pointer-events: none; inset: 0;
+  background-image: linear-gradient(rgb(255 255 255 / .027) 1px, transparent 1px),
+                    linear-gradient(90deg, rgb(255 255 255 / .027) 1px, transparent 1px);
+  background-size: 48px 48px; mask-image: linear-gradient(to bottom, rgb(0 0 0 / .75), transparent 95%);
+  animation: dp-grid-drift 30s linear infinite;
+}
+
+/* Angular cards: targeting actual custom-element host, not an absent .card class. */
+app-shell app-card {
+  display: block; position: relative; min-width: 0;
+  transition: transform 360ms cubic-bezier(.2,.8,.2,1), filter 360ms ease;
+  animation: dp-card-arrive 700ms cubic-bezier(.16,1,.3,1) both;
+}
+app-shell .content__main > * app-card:nth-of-type(2) { animation-delay: 90ms; }
+app-shell .content__main > * app-card:nth-of-type(3) { animation-delay: 160ms; }
+@media (hover: hover) and (pointer: fine) {
+  app-shell app-card:hover { transform: translateY(-7px) scale(1.008); filter: brightness(1.12); }
+}
+/* The border and highlight are rendered over the card but never intercept its content. */
+app-shell app-card::after {
+  content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  border: 1px solid rgb(255 255 255 / .13); border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .065), 0 18px 42px -30px rgb(0 0 0 / .9);
+  transition: border-color 320ms ease, box-shadow 320ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  app-shell app-card:hover::after {
+    border-color: rgb(230 237 255 / .42);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .17), 0 18px 55px -18px rgb(95 112 149 / .36), 0 0 28px rgb(255 255 255 / .075);
+  }
+}
+/* A visible gloss runs through section headings, without changing their text. */
+app-shell .content__main h1 {
+  color: transparent !important;
+  background-image: linear-gradient(105deg, #fafafa 30%, #8fa0bd 44%, #fff 49%, #8fa0bd 54%, #fafafa 70%);
+  background-size: 240% 100%; background-clip: text; -webkit-background-clip: text;
+  animation: dp-title-glint 7.5s ease-in-out infinite;
+}
+app-shell .sidebar { box-shadow: 15px 0 50px rgb(0 0 0 / .33); }
+app-shell .sidebar .nav__link { transition: background 250ms ease, transform 250ms ease, border-color 250ms ease, box-shadow 250ms ease, color 250ms ease; }
+app-shell .sidebar .nav__link.is-active { background: linear-gradient(100deg, rgb(255 255 255 / .16), rgb(255 255 255 / .025)); border-color: rgb(255 255 255 / .19); }
+app-shell .sidebar .nav__link.is-active::before { animation: dp-nav-beacon 2.4s ease-in-out infinite; }
+@media (hover: hover) and (pointer: fine) {
+  app-shell .sidebar .nav__link:hover { transform: translateX(5px); }
+  app-shell button:hover:not(:disabled), app-shell a:hover { transition-duration: 240ms; }
+}
+app-shell .cta-card__icon { box-shadow: 0 0 26px rgb(255 255 255 / .12); }
+
+/* Keep all effects lightweight on phones and accessible to sensitive users. */
+@media (max-width: 767px) {
+  app-shell .content::before { inset: -10vh -25vw; opacity: .55; }
+  app-shell .content::after { background-size: 54px 54px; opacity: .6; }
+  app-shell app-card { animation-duration: 460ms; }
+}
+@media (prefers-reduced-motion: reduce) {
+  app-shell .content::before, app-shell .content::after,
+  app-shell app-card, app-shell .content__main h1,
+  app-shell .sidebar .nav__link.is-active::before { animation: none !important; }
+  app-shell app-card, app-shell .sidebar .nav__link { transition: none !important; }
+  app-shell .content__main h1 { color: #fafafa !important; background: none !important; }
+}
+
+/* ==============================================================
+   DEVPILOT AI — CINEMATIC MOTION V4 • preview only
+   All visual transforms are behind UI or on visual card surfaces.
+   Mouse position / scrolling provided by public/cinematic-motion.js.
+   ============================================================== */
+:root { --dp-mx:56%;--dp-my:38%;--dp-shift-x:0px;--dp-shift-y:0px;--dp-scroll-shift:0px; }
+html,body,app-root{max-width:100%;overflow-x:clip}
+app-shell .content{position:relative;isolation:isolate;background: #090b10 !important;}
+/* Lighting reacts immediately to pointer and scroll. The CSS layer stays behind all real content. */
+app-shell .content::before{
+ content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
+ background:
+ radial-gradient(550px 430px at var(--dp-mx) var(--dp-my),rgba(77,137,230,.19),transparent 72%),
+ radial-gradient(440px 330px at 76% 72%,rgba(103,82,179,.18),transparent 75%),
+ radial-gradient(450px 250px at 15% 2%,rgba(160,206,255,.12),transparent 80%) !important;
+ transform:none!important;animation:dp-v4-aurora 13s ease-in-out infinite!important;
+}
+app-shell .content::after{
+ content:"";position:fixed;inset:-55px;pointer-events:none;z-index:-1;
+ background-image:linear-gradient(rgba(130,169,225,.075) 1px,transparent 1px),linear-gradient(90deg,rgba(130,169,225,.075) 1px,transparent 1px)!important;
+ background-size:48px 48px; background-position: var(--dp-shift-x) var(--dp-scroll-shift);
+ mask-image:linear-gradient(to bottom,rgba(0,0,0,.9),rgba(0,0,0,.2));
+ animation:none!important;
+}
+@keyframes dp-v4-aurora{0%,100%{opacity:.76}50%{opacity:1}}
+/* Subtle scanner lines add visible but restrained cinematographic motion. */
+app-shell .content__main{position:relative;z-index:1;}
+app-shell .content__main::before{
+ content:"";position:fixed;inset:0 0 auto 0;height:210px;z-index:-1;pointer-events:none;
+ background:linear-gradient(180deg,transparent 15%,rgba(95,153,238,.07) 50%,transparent 87%);
+ animation:dp-v4-scan 9s linear infinite;
+}
+@keyframes dp-v4-scan{from{transform:translateY(-240px)}to{transform:translateY(110vh)}}
+/* Cards get tracked spotlight and slight tilt without intercepting controls. */
+app-shell app-card{position:relative;transform-style:preserve-3d;transform:translateY(0) perspective(1000px) rotateX(0deg) rotateY(0deg);transition:transform .34s ease,filter .34s ease;animation:dp-v4-rise .65s cubic-bezier(.2,.8,.2,1) both!important;}
+@keyframes dp-v4-rise{from{opacity:0;translate:0 22px;filter:blur(5px)}to{opacity:1;translate:0 0;filter:blur(0)}}
+app-shell app-card::before{
+ content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:2;
+ background:radial-gradient(320px circle at var(--dp-card-x,50%) var(--dp-card-y,50%),rgba(142,197,255,.18),transparent 70%);
+ opacity:0;transition:opacity .25s ease;
+}
+app-shell app-card::after{border:1px solid rgba(119,161,219,.2)!important;transition:border-color .25s ease,box-shadow .25s ease;}
+@media (hover:hover) and (pointer:fine){
+ app-shell app-card:hover{transform:translateY(-8px) perspective(1000px) rotateX(var(--dp-rot-x,0deg)) rotateY(var(--dp-rot-y,0deg))!important;filter:brightness(1.07)}
+ app-shell app-card:hover::before{opacity:1}
+ app-shell app-card:hover::after{border-color:rgba(151,198,255,.56)!important;box-shadow:0 15px 45px rgba(32,84,169,.18),inset 0 1px rgba(255,255,255,.13)!important}
+}
+/* Route appearance restarts on each actual page navigation. */
+app-shell .content__main.dp-route-enter > *:not(router-outlet){animation:dp-v4-page .55s cubic-bezier(.2,.85,.25,1) both}
+@keyframes dp-v4-page{from{opacity:.28;translate:0 17px;filter:blur(5px)}to{opacity:1;translate:0 0;filter:blur(0)}}
+/* A noticeable animated accent on active nav item. */
+app-shell .sidebar{background:linear-gradient(180deg,#121724,#090a0d 75%)!important;border-right:1px solid rgba(153,186,233,.14)}
+app-shell .sidebar .nav__link.is-active{background:linear-gradient(100deg,rgba(87,143,228,.21),rgba(255,255,255,.035))!important;box-shadow:inset 0 0 19px rgba(80,129,210,.065)}
+app-shell .sidebar .nav__link.is-active::before{background:#a1caff!important;box-shadow:0 0 18px 4px rgba(96,156,255,.45)!important}
+/* Brand becomes legible: the provided logo is supplied at the exact path expected by Angular. */
+app-shell .brand__mark{border-color:rgba(150,193,255,.34)!important;background:#151c28!important;box-shadow:0 0 17px rgba(113,166,255,.20)}
+app-shell .brand__mark img{object-fit:cover!important}
+/* Professional blue-white glint while preserving selectable heading text. */
+app-shell .content__main h1{background-image:linear-gradient(110deg,#f9fbff 20%,#9dc9ff 43%,#fff 50%,#a4c7f9 57%,#f9fbff 76%)!important;background-size:240% 100%!important;animation:dp-title-glint 6s ease-in-out infinite!important}
+@media(max-width:767px){app-shell .content::before{opacity:.68}app-shell .content::after{opacity:.5}app-shell app-card{transform:none!important}app-shell .content__main::before{opacity:.35}}
+@media(prefers-reduced-motion:reduce){
+ app-shell .content::before,app-shell .content__main::before,app-shell app-card,app-shell .content__main h1,app-shell .content__main.dp-route-enter>*{animation:none!important;transition:none!important;transform:none!important;translate:none!important;filter:none!important}
+ app-shell .content__main h1{background:none!important;color:#f9fbff!important}
+ app-shell app-card::before{display:none!important}
+}
+
+
+/* ================================================================
+   DEVPILOT CINEMATIC V5 — ABSOLUTE MONOCHROME / deeper black
+   CSS overrides V3/V4 visuals without touching application behavior.
+   ================================================================ */
+:root{--dp-mx:50%;--dp-my:40%;--dp-shift-x:0px;--dp-scroll-shift:0px;--dp-card-x:50%;--dp-card-y:50%;--color-canvas:#020202;--color-surface:#0d0d0d;--color-surface-raised:#151515;--color-surface-sunken:#010101;--color-border:#323232;--color-border-soft:#242424;--color-border-strong:#555;--color-accent:#fff}
+html,body,app-root{background:#020202!important;max-width:100%;overflow-x:clip}
+app-shell .shell{background:#020202!important}
+app-shell .content{position:relative;background:#030303!important;isolation:isolate;overflow:clip}
+app-shell .content::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background:radial-gradient(520px 420px at var(--dp-mx) var(--dp-my),rgb(255 255 255 / .13),transparent 73%),radial-gradient(580px 440px at 73% 72%,rgb(255 255 255 / .045),transparent 78%),radial-gradient(380px 340px at 15% 12%,rgb(255 255 255 / .035),transparent 80%)!important;
+  transform:none!important;animation:dp-v5-luminance 9s ease-in-out infinite!important;
+}
+app-shell .content::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background-image:linear-gradient(rgb(255 255 255 / .042) 1px,transparent 1px),linear-gradient(90deg,rgb(255 255 255 / .042) 1px,transparent 1px)!important;
+  background-position:var(--dp-shift-x) var(--dp-scroll-shift);background-size:54px 54px;
+  mask-image:linear-gradient(to bottom,#000,transparent 97%);animation:none!important;
+}
+@keyframes dp-v5-luminance{0%,100%{opacity:.5}50%{opacity:1}}
+app-shell .content__main::before{
+  background:linear-gradient(180deg,transparent,rgb(255 255 255 / .075),transparent)!important;
+  animation:dp-v5-scan 11s linear infinite!important;
+  height:115px!important;
+}
+@keyframes dp-v5-scan{from{transform:translate3d(0,-170px,0)}to{transform:translate3d(0,110vh,0)}}
+/* Replace overly colorful highlights inherited from V3/V4. */
+app-shell .sidebar{background:linear-gradient(160deg,#0b0b0b,#020202 74%)!important;border-right:1px solid #282828!important;box-shadow:14px 0 65px rgb(0 0 0 / .68)!important}
+app-shell .sidebar .nav__link{transition:transform .3s ease,background .3s ease,box-shadow .3s ease!important}
+app-shell .sidebar .nav__link.is-active{background:linear-gradient(100deg,rgb(255 255 255 / .17),rgb(255 255 255 / .025))!important;box-shadow:inset 0 1px 0 rgb(255 255 255 / .12),0 6px 22px rgb(0 0 0 / .5)!important;border-color:rgb(255 255 255 / .22)!important}
+app-shell .sidebar .nav__link.is-active::before{background:#fff!important;box-shadow:0 0 20px 3px rgb(255 255 255 / .46)!important}
+app-shell .brand__mark,app-shell .brand--compact .brand__mark{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  flex:0 0 auto!important;width:36px!important;height:36px!important;
+  overflow:hidden!important;border:1px solid rgb(255 255 255 / .45)!important;
+  border-radius:10px!important;background:#090909!important;padding:3px!important;
+  box-shadow:0 0 0 2px rgb(255 255 255 / .045),0 0 18px rgb(255 255 255 / .15)!important;
+}
+app-shell .brand--compact .brand__mark{width:30px!important;height:30px!important;padding:2px!important}
+app-shell .brand__mark img,app-shell .brand--compact .brand__mark img{
+  display:block!important;position:static!important;width:100%!important;height:100%!important;
+  max-width:100%!important;max-height:100%!important;min-width:0!important;
+  object-fit:contain!important;object-position:center!important;
+  border:0!important;border-radius:6px!important;transform:none!important;
+  filter:grayscale(1) contrast(1.1)!important;
+}
+app-shell .content__main h1{
+  background-image:linear-gradient(100deg,#fff 16%,#bcbcbc 38%,#fff 51%,#b0b0b0 60%,#fff 78%)!important;
+  background-size:250% 100%!important;color:transparent!important;
+  animation:dp-title-glint 5.5s ease-in-out infinite!important;
+}
+app-shell app-card{
+  background:#101010!important;border-color:rgb(255 255 255 / .14)!important;
+  box-shadow:0 20px 40px rgb(0 0 0 / .45),inset 0 1px 0 rgb(255 255 255 / .045)!important;
+  animation:dp-v5-card-reveal .66s cubic-bezier(.19,1,.22,1) both!important;
+}
+@keyframes dp-v5-card-reveal{from{opacity:0;translate:0 25px;filter:blur(5px)}to{opacity:1;translate:0 0;filter:blur(0)}}
+app-shell app-card::before{background:radial-gradient(270px circle at var(--dp-card-x,50%) var(--dp-card-y,50%),rgb(255 255 255 / .20),transparent 75%)!important}
+app-shell app-card::after{border:1px solid rgb(255 255 255 / .13)!important;box-shadow:inset 0 1px 0 rgb(255 255 255 / .08)!important}
+@media(hover:hover) and (pointer:fine){
+ app-shell app-card:hover{transform:translateY(-9px) perspective(1000px) rotateX(var(--dp-rot-x,0deg)) rotateY(var(--dp-rot-y,0deg))!important;filter:brightness(1.14)!important}
+ app-shell app-card:hover::after{border-color:rgb(255 255 255 / .60)!important;box-shadow:inset 0 1px 0 rgb(255 255 255 / .22),0 20px 42px rgb(0 0 0 / .66),0 0 25px rgb(255 255 255 / .10)!important}
+ app-shell .sidebar .nav__link:hover{background:rgb(255 255 255 / .09);transform:translateX(5px)}
+}
+/* Scroll-driven reveal only when JS marks a heading or card; no hidden controls. */
+@keyframes dp-v5-appear{from{opacity:0;translate:0 18px;filter:blur(5px)}to{opacity:1;translate:0 0;filter:blur(0)}}
+app-shell .dp-v5-visible{animation:dp-v5-appear .72s cubic-bezier(.22,1,.36,1) both!important}
+app-shell .content__main.dp-route-enter>*:not(router-outlet){animation:dp-v5-appear .65s ease both!important}
+app-shell .content__main button,app-shell .content__main a{transition:filter .22s ease,box-shadow .22s ease,transform .22s ease}
+@media(hover:hover) and (pointer:fine){app-shell .content__main button:hover:not(:disabled){filter:brightness(1.16);box-shadow:0 0 18px rgb(255 255 255 / .10)}}
+@media(max-width:767px){app-shell .content::before{opacity:.62}app-shell .content::after{opacity:.50}app-shell app-card{animation-duration:.4s!important}app-shell .content__main::before{opacity:.32}}
+@media(prefers-reduced-motion:reduce){app-shell .content::before,app-shell .content__main::before,app-shell app-card,app-shell .content__main h1,app-shell .dp-v5-visible,app-shell .content__main.dp-route-enter>*{animation:none!important;transition:none!important;translate:none!important;transform:none!important;filter:none!important}app-shell .content__main h1{background:none!important;color:#fff!important}}
+
+/* === V7 - Monochrome cinematic motion. No functional bindings changed. === */
+app-shell .content{--dp-v7-light:rgba(255,255,255,.08)}
+app-shell .content::before{background:
+ radial-gradient(600px 440px at var(--dp-mx,50%) var(--dp-my,40%),rgba(255,255,255,.145),transparent 76%),
+ radial-gradient(420px 390px at 82% 40%,rgba(255,255,255,.035),transparent 84%)!important;
+ animation:dp-v7-ambient 7s ease-in-out infinite!important}
+@keyframes dp-v7-ambient{0%,100%{opacity:.65}50%{opacity:1}}
+app-shell .content__main{position:relative}
+app-shell .content__main h1{filter:drop-shadow(0 0 9px rgba(255,255,255,.055))}
+app-shell .content__main .dp-v7-headline-flash{animation:dp-v7-title-enter .7s cubic-bezier(.2,.9,.15,1) both!important}
+@keyframes dp-v7-title-enter{from{opacity:0;transform:translateY(15px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+app-shell .content__main app-card{transition:transform .3s ease,filter .3s ease,box-shadow .3s ease!important}
+app-shell .sidebar__help-shortcut{color:#f3f3f3!important}
+app-shell .content__main button:focus-visible,app-shell .content__main a:focus-visible{outline:2px solid white;outline-offset:3px}
+@media(max-width:720px){app-shell .content::before{animation-duration:11s!important}}
+@media(prefers-reduced-motion:reduce){app-shell .content::before,app-shell .dp-v7-headline-flash{animation:none!important}}
+
+
+/* ================================================================
+   DEVPILOT CINEMATIC V8 — NEURAL MONOCHROME + footer/login polish
+   ================================================================ */
+:root {
+  --dp-neural-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900'%3E%3Cg fill='none' stroke='rgba(255,255,255,0.10)' stroke-width='1'%3E%3Cpath d='M130 140L290 230L440 150L620 260L760 180L980 260L1170 170L1370 240'/%3E%3Cpath d='M90 430L260 360L420 470L620 390L810 510L1010 410L1190 500L1450 400'/%3E%3Cpath d='M180 730L350 620L520 730L690 640L860 760L1050 660L1240 760L1450 690'/%3E%3Cpath d='M290 230L260 360M440 150L420 470M620 260L620 390M760 180L810 510M980 260L1010 410M1170 170L1190 500M350 620L260 360M520 730L420 470M690 640L620 390M860 760L810 510M1050 660L1010 410M1240 760L1190 500'/%3E%3C/g%3E%3Cg fill='rgba(255,255,255,0.60)'%3E%3Ccircle cx='130' cy='140' r='3'/%3E%3Ccircle cx='290' cy='230' r='4'/%3E%3Ccircle cx='440' cy='150' r='3'/%3E%3Ccircle cx='620' cy='260' r='4'/%3E%3Ccircle cx='760' cy='180' r='3'/%3E%3Ccircle cx='980' cy='260' r='4'/%3E%3Ccircle cx='1170' cy='170' r='3'/%3E%3Ccircle cx='1370' cy='240' r='4'/%3E%3Ccircle cx='90' cy='430' r='3'/%3E%3Ccircle cx='260' cy='360' r='4'/%3E%3Ccircle cx='420' cy='470' r='3'/%3E%3Ccircle cx='620' cy='390' r='4'/%3E%3Ccircle cx='810' cy='510' r='3'/%3E%3Ccircle cx='1010' cy='410' r='4'/%3E%3Ccircle cx='1190' cy='500' r='3'/%3E%3Ccircle cx='1450' cy='400' r='4'/%3E%3Ccircle cx='180' cy='730' r='3'/%3E%3Ccircle cx='350' cy='620' r='4'/%3E%3Ccircle cx='520' cy='730' r='3'/%3E%3Ccircle cx='690' cy='640' r='4'/%3E%3Ccircle cx='860' cy='760' r='3'/%3E%3Ccircle cx='1050' cy='660' r='4'/%3E%3Ccircle cx='1240' cy='760' r='3'/%3E%3Ccircle cx='1450' cy='690' r='4'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+@keyframes dp-v8-neural-drift {
+  0% { transform: translate3d(0,0,0) scale(1); opacity: .18; }
+  50% { transform: translate3d(-1.2%, -1%, 0) scale(1.03); opacity: .28; }
+  100% { transform: translate3d(1.2%, 1%, 0) scale(1); opacity: .18; }
+}
+
+@keyframes dp-v8-neural-pulse {
+  0%,100% { opacity: .16; filter: brightness(.95); }
+  50% { opacity: .3; filter: brightness(1.18); }
+}
+
+app-shell .shell {
+  position: relative;
+  isolation: isolate;
+}
+
+app-shell .shell::before,
+app-shell .shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+app-shell .shell::before {
+  z-index: 0;
+  background:
+    radial-gradient(800px 450px at 50% 0%, rgba(255,255,255,.05), transparent 68%),
+    linear-gradient(180deg, rgba(255,255,255,.015), transparent 28%),
+    #020202;
+}
+
+app-shell .shell::after {
+  z-index: 0;
+  background-image: var(--dp-neural-svg);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  opacity: .24;
+  mix-blend-mode: screen;
+  animation: dp-v8-neural-drift 24s ease-in-out infinite, dp-v8-neural-pulse 8s ease-in-out infinite;
+}
+
+app-shell .sidebar,
+app-shell .content {
+  position: relative;
+  z-index: 1;
+}
+
+app-shell .content::before {
+  background:
+    radial-gradient(560px 420px at var(--dp-mx) var(--dp-my), rgba(255,255,255,.11), transparent 72%),
+    radial-gradient(520px 400px at 78% 72%, rgba(255,255,255,.04), transparent 76%),
+    radial-gradient(360px 280px at 12% 10%, rgba(255,255,255,.03), transparent 80%) !important;
+}
+
+app-shell .content::after {
+  background-image:
+    linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px) !important;
+}
+
+app-shell .sidebar .brand__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 0 20px rgba(255,255,255,.10);
+}
+
+app-shell .sidebar .brand__mark img {
+  object-fit: contain !important;
+  width: 74% !important;
+  height: 74% !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  app-shell .shell::after {
+    animation: none !important;
+  }
+}
+
+/* V9: monochrome neural canvas and motion coordinated with the Angular shell. */
+app-shell .dp-neural-canvas {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline-start: var(--shell-sidebar-width);
+  z-index: 0;
+  pointer-events: none;
+  opacity: .78;
+  filter: drop-shadow(0 0 2px rgba(255,255,255,.14));
+}
+app-shell .content__main, app-shell .content__footer { position: relative; z-index: 1; }
+app-shell .content__main { isolation: isolate; }
+@media(max-width:1023px) { app-shell .dp-neural-canvas { inset-inline-start: 0; opacity: .55; } }
+@media(prefers-reduced-motion:reduce) { app-shell .dp-neural-canvas { display: none; } }
+
+/* Modal login: animate visual panel and add a responsive monochrome spotlight.
+   This changes only presentation; all existing modal behaviors are untouched. */
+app-modal .modal[open]::backdrop { background: rgba(0,0,0,.84); backdrop-filter: blur(9px); }
+app-modal .modal__panel {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  border: 1px solid rgba(255,255,255,.27);
+  background: linear-gradient(140deg,rgba(255,255,255,.065),transparent 45%),#070707;
+  box-shadow: 0 36px 110px rgba(0,0,0,.78), 0 0 55px rgba(255,255,255,.055), inset 0 1px 0 rgba(255,255,255,.16);
+}
+app-modal .modal[open] .modal__panel { animation: dp-v9-dialog-enter .5s cubic-bezier(.16,1,.3,1) both; }
+app-modal .modal__panel::before {
+  content: ''; position:absolute;z-index:-1;inset:-40%;pointer-events:none;
+  background:radial-gradient(ellipse at 60% 10%,rgba(255,255,255,.13),transparent 52%);
+  animation: dp-v9-dialog-light 9s ease-in-out infinite alternate;
+}
+app-modal .modal__title { color:#fff; text-shadow:0 0 24px rgba(255,255,255,.12); }
+app-modal .modal__close { border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.035); }
+app-modal .modal__close:hover { background:rgba(255,255,255,.15); color:#fff; transform:rotate(90deg); }
+app-modal .modal__body :is(input,textarea,select) { transition:border-color .22s,box-shadow .22s,background .22s; }
+app-modal .modal__body :is(input,textarea,select):focus-visible { box-shadow:0 0 0 3px rgba(255,255,255,.13),0 0 22px rgba(255,255,255,.10); }
+@keyframes dp-v9-dialog-enter { from{ opacity:0;transform:translateY(20px) scale(.975);filter:blur(4px)}to{opacity:1;transform:none;filter:none} }
+@keyframes dp-v9-dialog-light {from{ transform:translate(-5%,-3%) }to{ transform:translate(6%,5%) }}
+@media(prefers-reduced-motion:reduce) { app-modal .modal[open] .modal__panel,app-modal .modal__panel::before{animation:none!important} app-modal .modal__close{transition:none!important} }

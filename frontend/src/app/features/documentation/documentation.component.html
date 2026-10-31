@@ -1,0 +1,32 @@
+<div class="docs-page">
+  <header class="docs-hero">
+    <div class="docs-eyebrow"><span class="docs-signal" aria-hidden="true"></span> DEVPILOT AI / REFERÊNCIA</div>
+    <h1>Documentação</h1>
+    <p>Documentação original incluída no arquivo do projeto. Consulte a apresentação, a arquitetura, o deploy e o frontend em um só lugar.</p>
+    <p class="docs-note">Os textos abaixo são uma cópia dos arquivos Markdown recebidos. Configurações e integrações devem ser confirmadas no ambiente original antes de publicar. O snapshot de deploy é histórico: a infraestrutura vigente está descrita no <code>DEPLOY.md</code> do repositório.</p>
+  </header>
+
+  <nav class="docs-index" aria-label="Seções da documentação">
+    @for (doc of documents; track doc.source; let i = $index) {
+      <button type="button" (click)="scrollToSection(i)" class="docs-index__link">
+        <span class="docs-index__number">0{{ i + 1 }}</span>
+        <span>{{ doc.name }}</span>
+      </button>
+    }
+  </nav>
+
+  <div class="docs-sections">
+    @for (doc of documents; track doc.source; let i = $index) {
+      <section class="docs-section" [id]="'doc-' + i" [attr.aria-label]="doc.name">
+        <details [open]="i === 0">
+          <summary>
+            <span class="docs-section__leading"><span class="docs-index__number">0{{ i + 1 }}</span><span class="docs-section__title">{{ doc.name }}<small>{{ doc.source }}</small></span></span>
+            <span class="docs-section__toggle" aria-hidden="true">+</span>
+          </summary>
+          <p class="docs-section__description">{{ doc.description }}</p>
+          <div class="docs-markdown" [innerHTML]="doc.html"></div>
+        </details>
+      </section>
+    }
+  </div>
+</div>

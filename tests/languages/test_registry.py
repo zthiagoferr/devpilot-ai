@@ -35,6 +35,11 @@ def test_validate_source_detects_and_dispatches() -> None:
     assert result.detection.language == "javascript"
     assert result.detection.source == "extension"
     assert result.metadata["validator"]["name"] == "javascript_tokenizer"
+    assert result.metadata["validation_skipped"] is False
+    assert result.metadata["score_status"] == "evaluated"
+    coverage = result.metadata["coverage"]
+    assert "delimiters" in coverage["checks"]
+    assert coverage["limitations"]
 
 
 def test_validate_source_uses_context_path_and_manual_language() -> None:
@@ -56,6 +61,8 @@ def test_unknown_detection_is_informational() -> None:
     assert result.language == "unknown"
     assert result.metadata["validator"] is None
     assert result.metadata["validation_skipped"] is True
+    assert result.metadata["score_status"] == "skipped"
+    assert "coverage" not in result.metadata
     assert len(result.issues) == 1
     assert result.issues[0].severity == "info"
     assert result.issues[0].cause == "language_undetected"
@@ -75,6 +82,9 @@ def test_validator_error_is_contained(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.issues[0].cause == "validator_error"
     assert result.issues[0].severity == "warning"
     assert result.metadata["validator"] is None
+    assert result.metadata["score_status"] == "unavailable"
+    assert result.score == 90
+    assert "coverage" not in result.metadata
 
 
 def test_low_confidence_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,6 +103,7 @@ def test_low_confidence_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.language == "css"
     assert result.metadata["low_confidence"] is True
+    assert result.metadata["score_status"] == "partial"
     assert result.issues[0].cause == "language_low_confidence"
     assert result.issues[0].severity == "info"
 
@@ -115,6 +126,47 @@ def test_validators_tolerate_missing_context() -> None:
     ):
         result = validator.validate("", None)
         assert result.language == validator.language
+
+
+def test_every_validator_declares_its_coverage() -> None:
+    from app.languages.validators import (
+        AdvplValidator,
+        CssValidator,
+        HtmlValidator,
+        JavascriptValidator,
+        PythonValidator,
+    )
+
+    for validator in (
+        AdvplValidator(),
+        CssValidator(),
+        HtmlValidator(),
+        JavascriptValidator(),
+        PythonValidator(),
+    ):
+        coverage = validator.coverage
+        assert coverage["checks"], validator.language
+        assert coverage["limitations"], validator.language
+        result = validator.validate("", None)
+        assert result.metadata["coverage"] == coverage
+
+
+def test_python_coverage_declares_ast_checks() -> None:
+    from app.languages.validators import PythonValidator
+
+    coverage = PythonValidator().coverage
+    assert coverage["checks"] == [
+        "syntax",
+        "undefined_names",
+        "constant_operations",
+        "literals",
+        # Added for coherence: the implemented break/continue/return checks
+        # were already reported but missing from the declared coverage.
+        "control_flow",
+    ]
+    limitations = " ".join(coverage["limitations"]).lower()
+    assert "heuristic" in limitations
+    assert "type inference" in limitations
 
 
 def test_invalid_manual_language_is_not_swallowed() -> None:

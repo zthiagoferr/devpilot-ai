@@ -17,6 +17,7 @@ import { LoginPromptService } from '../../../core/auth/login-prompt.service';
 import { BadgeComponent, BadgeTone } from '../../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
 import { CardComponent } from '../../../shared/components/card/card.component';
+import { CoverageSummaryComponent } from '../../../shared/components/coverage-summary/coverage-summary.component';
 import { ErrorStateComponent } from '../../../shared/components/error-state/error-state.component';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import { IssueListComponent } from '../../../shared/components/issue-list/issue-list.component';
@@ -24,7 +25,12 @@ import { languageLabel } from '../../../shared/components/language-select/langua
 import { ScoreRingComponent } from '../../../shared/components/score-ring/score-ring.component';
 import { SkeletonComponent } from '../../../shared/components/skeleton/skeleton.component';
 import { SourceViewerComponent } from '../../../shared/components/source-viewer/source-viewer.component';
-import { analysisSummaryPtBr } from '../../../shared/utils/pt-br-messages';
+import {
+  STRUCTURAL_SCORE_NOTE,
+  analysisSummaryPtBr,
+  resolveScoreStatus,
+  scoreStatusEmptyLabel,
+} from '../../../shared/utils/pt-br-messages';
 
 type LoadState = 'loading' | 'ready' | 'unauthorized' | 'error';
 
@@ -61,6 +67,7 @@ const TASK_LABELS: Readonly<Record<string, string>> = {
     BadgeComponent,
     ButtonComponent,
     CardComponent,
+    CoverageSummaryComponent,
     ErrorStateComponent,
     IconComponent,
     IssueListComponent,
@@ -100,19 +107,40 @@ export class AnalysisDetailComponent {
     () => this.analysis()?.result?.validation_skipped === true,
   );
 
-  protected readonly score = computed(() =>
-    this.validationSkipped() ? null : (this.analysis()?.result?.score ?? null),
+  protected readonly scoreStatus = computed(() =>
+    resolveScoreStatus(
+      this.analysis()?.result?.score_status,
+      this.validationSkipped(),
+    ),
+  );
+
+  protected readonly scoreEmptyLabel = computed(() => scoreStatusEmptyLabel(this.scoreStatus()));
+
+  protected readonly coverage = computed(() => this.analysis()?.result?.coverage ?? null);
+
+  protected readonly score = computed(() => {
+    const status = this.scoreStatus();
+    if (status === 'skipped' || status === 'unavailable') {
+      return null;
+    }
+    return this.analysis()?.result?.score ?? null;
+  });
+
+  protected readonly structuralNote = computed(() =>
+    this.scoreStatus() === 'evaluated' && this.issues().length === 0
+      ? STRUCTURAL_SCORE_NOTE
+      : null,
   );
 
   protected readonly summary = computed(() => {
     const analysis = this.analysis();
-    if (this.validationSkipped()) {
+    if (this.scoreStatus() === 'skipped') {
       return 'Idioma não reconhecido — selecione manualmente. A análise estrutural não foi executada.';
     }
     const result = analysis?.result;
     return analysisSummaryPtBr({
       summary: result?.summary,
-      score: result?.score,
+      score: this.score(),
       issueCount: result?.issues?.length ?? 0,
       status: analysis?.status,
     });
@@ -139,8 +167,15 @@ export class AnalysisDetailComponent {
   protected readonly isAuthenticated = computed(() => this.account.isAuthenticated());
 
   protected readonly scoreHint = computed(() => {
-    if (this.validationSkipped()) {
-      return 'Idioma não reconhecido — selecione manualmente.';
+    switch (this.scoreStatus()) {
+      case 'skipped':
+        return 'Idioma não reconhecido — selecione manualmente.';
+      case 'unavailable':
+        return 'Validação indisponível';
+      case 'partial':
+        return 'Análise parcial — confirme a linguagem manualmente.';
+      default:
+        break;
     }
     const value = this.score();
     if (value === null || !Number.isFinite(value)) {

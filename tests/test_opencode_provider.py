@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from app.llm.base import IncompleteLLMResponseError
 from app.llm.opencode_provider import OpenCodeProvider
 
 
@@ -54,3 +55,54 @@ async def test_opencode_provider_generates_response() -> None:
             },
         ],
     }
+
+
+class IncompleteResponses:
+    async def create(self, **kwargs: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            output_text="",
+            status="incomplete",
+            incomplete_details={"reason": "max_output_tokens"},
+        )
+
+
+class IncompleteOpenCodeClient:
+    def __init__(self) -> None:
+        self.responses = IncompleteResponses()
+
+
+@pytest.mark.asyncio
+async def test_opencode_provider_rejects_an_incomplete_response() -> None:
+    provider = OpenCodeProvider(
+        api_key="test-key",
+        model="deepseek-v4.1-flash",
+        client=IncompleteOpenCodeClient(),
+    )
+
+    with pytest.raises(IncompleteLLMResponseError):
+        await provider.generate("Return JSON.")
+
+
+class IncompleteDetailsOnlyResponses:
+    async def create(self, **kwargs: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            output_text="partial",
+            incomplete_details={"reason": "max_output_tokens"},
+        )
+
+
+class IncompleteDetailsOnlyClient:
+    def __init__(self) -> None:
+        self.responses = IncompleteDetailsOnlyResponses()
+
+
+@pytest.mark.asyncio
+async def test_opencode_provider_rejects_non_null_incomplete_details() -> None:
+    provider = OpenCodeProvider(
+        api_key="test-key",
+        model="deepseek-v4.1-flash",
+        client=IncompleteDetailsOnlyClient(),
+    )
+
+    with pytest.raises(IncompleteLLMResponseError):
+        await provider.generate("Return JSON.")

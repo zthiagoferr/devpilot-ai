@@ -12,7 +12,12 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents.base import BaseAgent
-from app.languages.base import Detection, ValidationContext
+from app.languages.base import (
+    Detection,
+    ValidationContext,
+    copy_coverage,
+    normalize_score_status,
+)
 from app.languages.detector import detect_language
 from app.languages.registry import validate_source
 
@@ -22,6 +27,7 @@ _REPORT_ANALYSIS_FIELDS: tuple[str, ...] = (
     "issues",
     "summary",
     "language",
+    "validation_skipped",
 )
 
 
@@ -82,6 +88,31 @@ def detection_as_dict(detection: Detection) -> dict[str, Any]:
     }
 
 
+def _coverage_entry(analysis: dict[str, Any]) -> dict[str, Any]:
+    """Return the per-language coverage block exposed by the report.
+
+    The per-analysis keys are a fixed contract (see
+    ``tests/test_language_agent.py``), so coverage lives at the report top level
+    keyed by language instead of changing ``analyses[language]``.
+    """
+    coverage = analysis.get("coverage")
+    checks = coverage.get("checks") if isinstance(coverage, dict) else None
+    limitations = coverage.get("limitations") if isinstance(coverage, dict) else None
+    return {
+        "score_status": normalize_score_status(analysis.get("score_status")),
+        "checks": (
+            [str(item) for item in checks]
+            if isinstance(checks, (list, tuple))
+            else []
+        ),
+        "limitations": (
+            [str(item) for item in limitations]
+            if isinstance(limitations, (list, tuple))
+            else []
+        ),
+    }
+
+
 class LanguageCodeAgent(BaseAgent):
     """Validate non-Python source with the deterministic language validator."""
 
@@ -107,16 +138,26 @@ class LanguageCodeAgent(BaseAgent):
         )
 
         validator = result.metadata.get("validator")
+        coverage = result.metadata.get("coverage")
         payload: dict[str, Any] = {
             "agent": self.name,
             "project_name": str(context.get("project_name") or ""),
             "score": int(result.score),
+            "score_status": normalize_score_status(
+                result.metadata.get("score_status")
+            ),
             "issues": [issue.as_dict() for issue in result.issues],
             "summary": str(result.summary or ""),
             "language": result.language,
             "language_source": result.detection.source,
             "confidence": round(float(result.detection.confidence), 2),
             "validator": validator if isinstance(validator, dict) else None,
+            "coverage": (
+                copy_coverage(coverage) if isinstance(coverage, dict) else None
+            ),
+            "validation_skipped": bool(
+                result.metadata.get("validation_skipped", False)
+            ),
         }
         requested_task = context.get("requested_task")
         if isinstance(requested_task, str) and requested_task:
@@ -158,6 +199,9 @@ class LanguageReportAgent(BaseAgent):
             "overall_score": overall_score,
             "total_issues": total_issues,
             "analyses": analyses,
+            "coverage": {
+                analysis["language"]: _coverage_entry(analysis),
+            },
             "summary": (
                 f"Analysis completed with an overall score of "
                 f"{overall_score}/100 and {total_issues} issue(s) found."

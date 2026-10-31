@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from app.languages.base import (
+    SCORE_STATUSES,
+    SCORE_STATUS_MEANINGS,
     Detection,
     LanguageIssue,
     ValidationContext,
     compute_score,
+    normalize_score_status,
     normalize_severity,
 )
 
@@ -75,3 +78,20 @@ def test_detection_candidates_default_empty() -> None:
         reason="known_extension",
     )
     assert detection.candidates == ()
+
+
+def test_score_status_vocabulary_is_stable() -> None:
+    assert SCORE_STATUSES == ("evaluated", "partial", "skipped", "unavailable")
+    assert set(SCORE_STATUS_MEANINGS) == set(SCORE_STATUSES)
+
+
+def test_normalize_score_status_accepts_the_vocabulary() -> None:
+    for status in SCORE_STATUSES:
+        assert normalize_score_status(status) == status
+
+
+def test_normalize_score_status_defaults_to_evaluated() -> None:
+    # Legacy payloads predate the field and must keep the historical meaning.
+    assert normalize_score_status(None) == "evaluated"
+    assert normalize_score_status("unknown") == "evaluated"
+    assert normalize_score_status(42) == "evaluated"

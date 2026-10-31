@@ -1,0 +1,231 @@
+<div class="batch" [attr.aria-busy]="busyPath() !== null || decidingId() !== null ? 'true' : null">
+  <header class="batch__header">
+    <div class="batch__title">
+      <h3 class="text-heading font-semibold text-text">Correção de arquivos selecionados</h3>
+      <app-badge tone="warning">Sugestão de IA</app-badge>
+      @if (hasPartial()) {
+        <app-badge tone="warning">Lote parcial</app-badge>
+      }
+      @if (budgetExceeded()) {
+        <app-badge tone="warning">Orçamento esgotado</app-badge>
+      }
+    </div>
+    <p class="batch__warning" role="note">
+      Sugestões geradas por IA — revise cada arquivo antes de aprovar. Nenhum código é aplicado
+      automaticamente.
+    </p>
+    @if (isAdvpl()) {
+      <p class="batch__warning" role="note">{{ advplDisclaimer }}</p>
+    }
+    <p class="batch__summary">{{ summary().text }}</p>
+  </header>
+
+  @if (status(); as currentStatus) {
+    <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
+  }
+
+  <ul class="batch__items">
+    @for (item of items(); track item.path) {
+      <li class="batch-item">
+        <header class="batch-item__header">
+          <span class="batch-item__path mono-metric">{{ item.path }}</span>
+          <span class="batch-item__meta">
+            <app-badge [tone]="statusTone(item.status)">{{ statusLabel(item.status) }}</app-badge>
+            <span class="text-caption text-muted">{{ issueCountLabel(item) }}</span>
+          </span>
+        </header>
+
+        @if (messageFor(item.path); as itemMessage) {
+          <app-inline-status [tone]="itemMessage.tone" [message]="itemMessage.message" />
+        }
+
+        @if (item.correction; as correction) {
+          <section class="batch-item__section">
+            <h4 class="batch-item__section-title">Diferenças</h4>
+            @if (diffLines(item).length === 0) {
+              <p class="text-body-sm text-muted">A IA não retornou diferenças para este arquivo.</p>
+            } @else {
+              <ol class="diff" [attr.aria-label]="'Diferenças em ' + item.path">
+                @for (line of diffLines(item); track $index) {
+                  <li [class]="'diff__line diff__line--' + line.kind">
+                    <span class="diff__sign" aria-hidden="true">{{ line.sign }}</span>
+                    <code class="diff__text">{{ line.text }}</code>
+                  </li>
+                }
+              </ol>
+            }
+          </section>
+
+          <section class="batch-item__section">
+            <h4 class="batch-item__section-title">Explicação</h4>
+            <p class="text-body-sm whitespace-pre-line break-words text-muted">
+              {{ correction.explanation }}
+            </p>
+          </section>
+
+          <section class="batch-item__section">
+            <div class="batch-item__validation-header">
+              <h4 class="batch-item__section-title">Validação local (heurística)</h4>
+              <app-badge [tone]="validation(item).tone">{{ validation(item).label }}</app-badge>
+            </div>
+            <p class="text-body-sm leading-relaxed text-muted">{{ validation(item).message }}</p>
+            <p class="text-caption text-muted">
+              Revalidação estática local — não é compilação oficial nem execução do código.
+            </p>
+            <p class="text-body-sm text-muted">
+              {{ validation(item).resolvedCount }} de
+              {{ validation(item).originalCount }} resolvidos ·
+              {{ validation(item).remaining.length }} pendentes ·
+              {{ validation(item).newIssues.length }} novos ·
+              {{ validation(item).warnings.length }} avisos
+            </p>
+
+            @if (validation(item).remaining.length > 0) {
+              <div class="batch-item__findings">
+                <p class="batch-item__findings-title">Problemas originais que permanecem</p>
+                <ul class="batch-item__finding-list">
+                  @for (pending of validation(item).remaining; track $index) {
+                    <li class="batch-item__finding">
+                      <app-badge [tone]="findingTone(pending)">
+                        {{ findingSeverity(pending) }}
+                      </app-badge>
+                      <span class="batch-item__finding-text">{{ findingLabel(pending) }}</span>
+                      @if (findingLocation(pending, item.path); as location) {
+                        <span class="batch-item__finding-meta">{{ location }}</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (validation(item).newIssues.length > 0) {
+              <div class="batch-item__findings">
+                <p class="batch-item__findings-title">Novos problemas introduzidos</p>
+                <ul class="batch-item__finding-list">
+                  @for (introduced of validation(item).newIssues; track $index) {
+                    <li class="batch-item__finding">
+                      <app-badge [tone]="findingTone(introduced)">
+                        {{ findingSeverity(introduced) }}
+                      </app-badge>
+                      <span class="batch-item__finding-text">{{ findingLabel(introduced) }}</span>
+                      @if (findingLocation(introduced, item.path); as location) {
+                        <span class="batch-item__finding-meta">{{ location }}</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (validation(item).warnings.length > 0) {
+              <div class="batch-item__findings">
+                <p class="batch-item__findings-title">Avisos de baixa severidade</p>
+                <ul class="batch-item__finding-list">
+                  @for (warning of validation(item).warnings; track $index) {
+                    <li class="batch-item__finding">
+                      <app-badge [tone]="findingTone(warning)">{{
+                        findingSeverity(warning)
+                      }}</app-badge>
+                      <span class="batch-item__finding-text">{{ findingLabel(warning) }}</span>
+                      @if (findingLocation(warning, item.path); as location) {
+                        <span class="batch-item__finding-meta">{{ location }}</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+          </section>
+
+          <section class="batch-item__section">
+            <div class="batch-item__validation-header">
+              <h4 class="batch-item__section-title">Decisão deste arquivo</h4>
+              <app-badge
+                [tone]="
+                  correction.status === 'approved'
+                    ? 'success'
+                    : correction.status === 'rejected'
+                      ? 'danger'
+                      : 'warning'
+                "
+              >
+                {{
+                  correction.status === 'approved'
+                    ? 'Aprovada'
+                    : correction.status === 'rejected'
+                      ? 'Rejeitada'
+                      : 'Aguardando decisão'
+                }}
+              </app-badge>
+            </div>
+            <p class="text-caption text-muted">
+              A decisão vale apenas para este arquivo. Aprovar um arquivo não aprova os demais e não
+              altera o código nem o repositório.
+            </p>
+
+            @if (correction.status === 'pending') {
+              @if (authenticated()) {
+                <div class="batch-item__actions">
+                  <app-button
+                    size="sm"
+                    [loading]="decisionInFlight(item, 'approved')"
+                    [disabled]="decidingId() !== null"
+                    (click)="decide(item, 'approved')"
+                  >
+                    <app-icon name="check" [size]="15" [strokeWidth]="2" />
+                    Aprovar
+                  </app-button>
+                  <app-button
+                    size="sm"
+                    variant="danger"
+                    [loading]="decisionInFlight(item, 'rejected')"
+                    [disabled]="decidingId() !== null"
+                    (click)="decide(item, 'rejected')"
+                  >
+                    Rejeitar
+                  </app-button>
+                </div>
+              } @else {
+                <p class="text-body-sm text-muted">
+                  Entre na sua conta para aprovar ou rejeitar esta correção.
+                </p>
+                <div class="batch-item__actions">
+                  <app-button size="sm" variant="secondary" (click)="decide(item, 'approved')">
+                    <app-icon name="lock" [size]="15" />
+                    Entrar
+                  </app-button>
+                </div>
+              }
+            }
+          </section>
+        } @else {
+          <section class="batch-item__section">
+            <p class="text-body-sm text-muted">
+              {{ item.status === 'skipped' ? 'Arquivo pulado' : 'Falha ao corrigir este arquivo' }}:
+              <strong>{{ reasonLabel(item) }}</strong
+              >.
+            </p>
+            @if (item.error_detail) {
+              <p class="batch-item__detail mono-metric">{{ item.error_detail }}</p>
+            }
+            @if (item.status === 'failed') {
+              <div class="batch-item__actions">
+                <app-button
+                  size="sm"
+                  variant="secondary"
+                  [loading]="busyPath() === item.path"
+                  [disabled]="!canRetry(item)"
+                  (click)="retry(item)"
+                >
+                  <app-icon name="sparkles" [size]="15" />
+                  Tentar novamente
+                </app-button>
+              </div>
+            }
+          </section>
+        }
+      </li>
+    }
+  </ul>
+</div>

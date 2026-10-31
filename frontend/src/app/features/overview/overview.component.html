@@ -23,7 +23,7 @@
     }
   </section>
 
-  <div class="grid gap-6 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+  <div class="grid gap-6">
     <div class="cta-card">
       <app-card padding="lg">
         <div class="flex flex-col gap-5">
@@ -39,44 +39,12 @@
             </p>
           </div>
 
-          <div class="flex flex-wrap gap-2">
-            <app-button (click)="startAnalysis()">
-              <app-icon name="plus" [size]="16" />
-              Analisar código
-            </app-button>
-            <app-button variant="ghost" (click)="openHistory()">
-              <app-icon name="history" [size]="16" />
-              Ver histórico
-            </app-button>
-          </div>
+
         </div>
       </app-card>
     </div>
 
-    <app-card padding="lg">
-      <div class="flex flex-col gap-5">
-        <div class="flex flex-col gap-1">
-          <h2 class="text-heading font-semibold text-text">Como a análise funciona</h2>
-          <p class="text-caption text-muted">Três etapas, um único envio.</p>
-        </div>
 
-        <ol class="flex flex-col gap-4">
-          @for (step of steps; track step.title; let index = $index) {
-            <li class="flex items-start gap-3">
-              <span
-                class="mono-metric flex h-7 w-7 flex-none items-center justify-center rounded-sm border border-border bg-surface-raised text-caption text-accent"
-              >
-                {{ index + 1 }}
-              </span>
-              <div class="flex flex-col gap-1">
-                <p class="text-body-sm font-medium text-text">{{ step.title }}</p>
-                <p class="text-caption text-muted">{{ step.description }}</p>
-              </div>
-            </li>
-          }
-        </ol>
-      </div>
-    </app-card>
   </div>
 
   <section class="flex flex-col gap-4" aria-labelledby="recent-activity-title">

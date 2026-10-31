@@ -49,8 +49,44 @@ def _environment() -> str:
     ).strip().lower()
 
 
+_PRODUCTION_ENVIRONMENTS: Final[frozenset[str]] = frozenset({"production", "prod"})
+
+# Deliberately free of the URL, driver, host, user, or password: this message
+# can reach logs and CI output.
+_PRODUCTION_DATABASE_URL_ERROR: Final[str] = (
+    "DATABASE_URL must be configured with a PostgreSQL URL in production."
+)
+
+
+def is_production_environment(environment: str | None) -> bool:
+    """Return whether ``environment`` names a production environment."""
+    return (environment or "").strip().lower() in _PRODUCTION_ENVIRONMENTS
+
+
+def validate_migration_database_url(value: str, environment: str | None) -> str:
+    """Validate a database URL before Alembic runs any migration.
+
+    Outside production the value is returned unchanged. In production the URL
+    must point at PostgreSQL (``postgres`` or ``postgresql`` with an optional
+    driver suffix); anything else raises a fixed :class:`RuntimeError` that
+    never includes the original value, so credentials cannot leak.
+    """
+    if not is_production_environment(environment):
+        return value
+
+    try:
+        driver = make_url(value).drivername.strip().lower()
+    except Exception:
+        raise RuntimeError(_PRODUCTION_DATABASE_URL_ERROR) from None
+
+    if driver == "postgres" or driver.startswith("postgresql"):
+        return value
+
+    raise RuntimeError(_PRODUCTION_DATABASE_URL_ERROR) from None
+
+
 def _is_production() -> bool:
-    return _environment() in {"production", "prod"}
+    return is_production_environment(_environment())
 
 
 def _configured_database_url() -> str:

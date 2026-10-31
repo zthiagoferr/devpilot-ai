@@ -7,7 +7,7 @@
     </p>
   </header>
 
-  <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+  <div class="grid items-start gap-6">
     <div class="flex min-w-0 flex-col gap-6">
       <app-card padding="lg">
         <app-tabs [tabs]="tabs" [(activeId)]="activeTab" ariaLabel="Método de análise">
@@ -66,8 +66,11 @@
             </form>
           } @else {
             <app-repository-analysis
+              [authenticated]="authenticated()"
               (started)="clearRepositoryResult()"
               (cleared)="clearRepositoryResult()"
+              (loginRequested)="openLogin()"
+              (decided)="handleDecided()"
               (analyzed)="handleRepositoryResult($event)"
             />
           }
@@ -78,10 +81,10 @@
         <app-card padding="lg">
           <div class="flex flex-col gap-5 sm:flex-row sm:items-start">
             <app-score-ring
-              [score]="validationSkipped() ? null : (analysis.result?.score ?? null)"
+              [score]="displayScore()"
               [size]="104"
               caption="score"
-              [emptyLabel]="validationSkipped() ? 'Não avaliado' : null"
+              [emptyLabel]="scoreEmptyLabel()"
             />
 
             <div class="flex min-w-0 flex-1 flex-col gap-3">
@@ -103,11 +106,8 @@
                 }
               </div>
 
-              @if (validationSkipped()) {
-                <app-inline-status
-                  tone="warning"
-                  message="Idioma não reconhecido — selecione manualmente."
-                />
+              @if (scoreStatusNotice(); as notice) {
+                <app-inline-status [tone]="scoreStatusTone()" [message]="notice" />
               }
 
               @if (resultSummary(); as summary) {
@@ -116,6 +116,10 @@
                 <p class="text-body-sm text-muted">
                   Os agentes não retornaram um resumo para esta análise.
                 </p>
+              }
+
+              @if (structuralNote(); as note) {
+                <p class="text-caption text-muted">{{ note }}</p>
               }
 
               <div class="flex flex-wrap items-center gap-3">
@@ -141,47 +145,16 @@
               />
             </div>
           }
+
+          @if (coverage(); as coverageData) {
+            <div class="mt-6 border-t border-border-soft pt-5">
+              <app-coverage-summary [coverage]="coverageData" />
+            </div>
+          }
         </app-card>
       }
     </div>
 
-    <aside class="flex flex-col gap-4 lg:sticky lg:top-6" aria-label="Orientações da análise">
-      <app-card padding="md">
-        <div class="flex flex-col gap-4">
-          <div class="flex items-center gap-2">
-            <span class="rail-icon" aria-hidden="true">
-              <app-icon name="activity" [size]="18" />
-            </span>
-            <h2 class="text-heading font-semibold text-text">O que é avaliado</h2>
-          </div>
 
-          <ul class="flex flex-col gap-3">
-            @for (item of evaluationItems; track item) {
-              <li class="flex items-start gap-2 text-body-sm text-muted">
-                <span class="mt-0.5 text-success" aria-hidden="true">
-                  <app-icon name="check" [size]="15" [strokeWidth]="2" />
-                </span>
-                {{ item }}
-              </li>
-            }
-          </ul>
-        </div>
-      </app-card>
-
-      <app-card padding="md">
-        <div class="flex flex-col gap-3">
-          <div class="flex items-center gap-2">
-            <span class="rail-icon" aria-hidden="true">
-              <app-icon name="lock" [size]="18" />
-            </span>
-            <h2 class="text-heading font-semibold text-text">Privacidade</h2>
-          </div>
-          <p class="text-body-sm leading-relaxed text-muted">
-            Análises anônimas não ficam vinculadas a uma conta. Entre para salvar o resultado e
-            consultar o histórico quando o acesso à conta estiver disponível.
-          </p>
-        </div>
-      </app-card>
-    </aside>
   </div>
 </div>

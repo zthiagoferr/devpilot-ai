@@ -29,22 +29,26 @@ PROTECTED_PATHS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/analyses"),
         ("POST", "/repositories/load"),
         ("POST", "/corrections"),
+        ("POST", "/corrections/batch"),
     }
 )
 
-#: Path that uses the dedicated correction limits. Kept as a constant so the
+#: Paths that use the dedicated correction limits. Kept as a constant so the
 #: middleware stays a pure function of the settings object.
 CORRECTION_PATH = "/corrections"
+CORRECTION_PATHS: frozenset[str] = frozenset(
+    {CORRECTION_PATH, "/corrections/batch"}
+)
 
 
 def _rate_limit_for(settings: Any, path: str) -> tuple[int, float]:
     """Return ``(limit, window)`` for ``path``.
 
-    ``/corrections`` uses its own settings with a fallback to the shared
-    ``rate_limit_*`` values, so existing callers (and tests) that provide only
-    those attributes keep working.
+    ``/corrections`` and ``/corrections/batch`` share their own settings with a
+    fallback to the shared ``rate_limit_*`` values, so existing callers (and
+    tests) that provide only those attributes keep working.
     """
-    if path == CORRECTION_PATH:
+    if path in CORRECTION_PATHS:
         raw_limit = getattr(settings, "correction_rate_limit_requests", None)
         if raw_limit is None:
             raw_limit = getattr(settings, "rate_limit_requests", 0)

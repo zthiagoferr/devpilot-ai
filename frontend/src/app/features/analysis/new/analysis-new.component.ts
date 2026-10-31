@@ -19,6 +19,7 @@ import { RepositoryStore } from '../../../core/repositories/repository-store';
 import { BadgeComponent } from '../../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
 import { CardComponent } from '../../../shared/components/card/card.component';
+import { CoverageSummaryComponent } from '../../../shared/components/coverage-summary/coverage-summary.component';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import {
   InlineStatusComponent,
@@ -31,7 +32,13 @@ import { languageLabel } from '../../../shared/components/language-select/langua
 import { ScoreRingComponent } from '../../../shared/components/score-ring/score-ring.component';
 import { TabItem, TabsComponent } from '../../../shared/components/tabs/tabs.component';
 import { TextareaComponent } from '../../../shared/components/textarea/textarea.component';
-import { analysisSummaryPtBr } from '../../../shared/utils/pt-br-messages';
+import {
+  STRUCTURAL_SCORE_NOTE,
+  analysisSummaryPtBr,
+  resolveScoreStatus,
+  scoreStatusEmptyLabel,
+  scoreStatusNotice,
+} from '../../../shared/utils/pt-br-messages';
 import { RepositoryAnalysisComponent } from './repository-analysis.component';
 
 const MAX_SOURCE_BYTES = 1_000_000;
@@ -53,6 +60,7 @@ const TABS: readonly TabItem[] = [
     BadgeComponent,
     ButtonComponent,
     CardComponent,
+    CoverageSummaryComponent,
     IconComponent,
     InlineStatusComponent,
     InputComponent,
@@ -122,8 +130,27 @@ export class AnalysisNewComponent {
       : null;
   });
 
-  protected readonly validationSkipped = computed(
-    () => this.result()?.result?.validation_skipped === true,
+  protected readonly scoreStatus = computed(() =>
+    resolveScoreStatus(
+      this.result()?.result?.score_status,
+      this.result()?.result?.validation_skipped,
+    ),
+  );
+
+  protected readonly scoreEmptyLabel = computed(() => scoreStatusEmptyLabel(this.scoreStatus()));
+
+  protected readonly scoreStatusNotice = computed(() => scoreStatusNotice(this.scoreStatus()));
+
+  protected readonly scoreStatusTone = computed<InlineStatusTone>(() =>
+    this.scoreStatus() === 'unavailable' ? 'error' : 'warning',
+  );
+
+  protected readonly coverage = computed(() => this.result()?.result?.coverage ?? null);
+
+  protected readonly structuralNote = computed(() =>
+    this.scoreStatus() === 'evaluated' && this.resultIssues().length === 0
+      ? STRUCTURAL_SCORE_NOTE
+      : null,
   );
 
   protected readonly projectNameError = computed(() => {
@@ -156,17 +183,24 @@ export class AnalysisNewComponent {
   });
 
   protected readonly resultIssues = computed(() => this.result()?.result?.issues ?? []);
+  protected readonly displayScore = computed(() => {
+    const status = this.scoreStatus();
+    if (status === 'skipped' || status === 'unavailable') {
+      return null;
+    }
+    return this.result()?.result?.score ?? null;
+  });
   protected readonly resultSummary = computed(() => {
     const analysis = this.result();
     if (analysis === null) {
       return null;
     }
-    if (this.validationSkipped()) {
+    if (this.scoreStatus() === 'skipped') {
       return 'Idioma não reconhecido — selecione manualmente. A análise estrutural não foi executada.';
     }
     return analysisSummaryPtBr({
       summary: analysis.result?.summary,
-      score: analysis.result?.score,
+      score: this.displayScore(),
       issueCount: this.resultIssues().length,
       status: analysis.status,
     });

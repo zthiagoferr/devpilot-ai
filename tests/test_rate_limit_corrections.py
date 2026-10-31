@@ -22,6 +22,10 @@ def _build_app(settings, limiter: InMemoryRateLimiter | None = None) -> FastAPI:
     async def corrections() -> dict[str, bool]:
         return {"ok": True}
 
+    @app.post("/corrections/batch")
+    async def corrections_batch() -> dict[str, bool]:
+        return {"ok": True}
+
     @app.post("/analyses")
     async def analyses() -> dict[str, bool]:
         return {"ok": True}
@@ -78,6 +82,40 @@ def test_correction_and_analysis_quotas_are_independent() -> None:
     assert client.post("/corrections").status_code == 429
     # The analysis bucket has not been consumed by corrections.
     assert client.post("/analyses").status_code == 200
+
+
+def test_batch_route_uses_the_correction_quota_and_returns_429() -> None:
+    settings = SimpleNamespace(
+        correction_rate_limit_requests=2,
+        correction_rate_limit_window_seconds=60.0,
+        rate_limit_requests=100,
+        rate_limit_window_seconds=60.0,
+        trust_proxy_headers=False,
+    )
+    client = TestClient(_build_app(settings))
+
+    assert client.post("/corrections/batch").status_code == 200
+    assert client.post("/corrections/batch").status_code == 200
+    response = client.post("/corrections/batch")
+    assert response.status_code == 429
+    assert int(response.headers["retry-after"]) >= 1
+
+
+def test_correction_and_batch_reuse_the_same_configured_limit() -> None:
+    settings = SimpleNamespace(
+        correction_rate_limit_requests=1,
+        correction_rate_limit_window_seconds=60.0,
+        rate_limit_requests=100,
+        rate_limit_window_seconds=60.0,
+        trust_proxy_headers=False,
+    )
+    client = TestClient(_build_app(settings))
+
+    # Each path owns its bucket, but both read the same correction settings.
+    assert client.post("/corrections").status_code == 200
+    assert client.post("/corrections").status_code == 429
+    assert client.post("/corrections/batch").status_code == 200
+    assert client.post("/corrections/batch").status_code == 429
 
 
 def test_correction_window_expiry_restores_the_quota() -> None:

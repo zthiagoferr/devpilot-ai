@@ -71,6 +71,21 @@ def test_factory_creates_opencode_provider() -> None:
     assert isinstance(provider, OpenCodeProvider)
 
 
+def test_factory_passes_an_arbitrary_model_verbatim_to_opencode() -> None:
+    settings = Settings(
+        llm_provider="opencode",
+        llm_model="deepseek-v4.1-flash",
+        llm_api_key="test-key",
+        _env_file=None,
+    )
+
+    provider = create_llm_provider(settings)
+
+    # No catalog/allowlist: the configured value reaches the provider as-is.
+    assert isinstance(provider, OpenCodeProvider)
+    assert provider._model == "deepseek-v4.1-flash"
+
+
 def test_factory_rejects_opencode_without_api_key() -> None:
     settings = Settings(
         llm_provider="opencode",

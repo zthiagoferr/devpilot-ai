@@ -16,36 +16,22 @@ from app.languages.base import (
     Detection,
     UnsupportedLanguageError,
 )
+from app.languages.spec import SPECS
 
-#: Extension (lowercase, with the dot) -> language.
+#: Extension (lowercase, with the dot) -> language, derived from :data:`SPECS`.
 LANGUAGE_EXTENSIONS: dict[str, str] = {
-    ".py": "python",
-    ".pyi": "python",
-    ".prw": "advpl",
-    ".prg": "advpl",
-    ".ch": "advpl",
-    ".html": "html",
-    ".htm": "html",
-    ".css": "css",
-    ".js": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
+    extension: spec.id
+    for spec in SPECS.values()
+    for extension in spec.extensions
 }
 
-#: Baseline confidence assigned to each extension. ``.prg`` and ``.ch`` are
-#: shared by other ecosystems and are therefore less conclusive.
+#: Baseline confidence assigned to each extension, derived from :data:`SPECS`.
+#: ``.prg`` and ``.ch`` are shared by other ecosystems and are therefore less
+#: conclusive.
 EXTENSION_CONFIDENCE: dict[str, float] = {
-    ".py": 0.99,
-    ".pyi": 0.99,
-    ".prw": 0.99,
-    ".html": 0.99,
-    ".htm": 0.99,
-    ".css": 0.99,
-    ".js": 0.95,
-    ".mjs": 0.95,
-    ".cjs": 0.95,
-    ".prg": 0.75,
-    ".ch": 0.70,
+    extension: spec.confidence_by_extension[extension]
+    for spec in SPECS.values()
+    for extension in spec.extensions
 }
 
 _AUTO_REQUEST_VALUES = frozenset({"auto", ""})
@@ -172,11 +158,22 @@ def _advpl_score(text: str) -> float:
 
     body = _strip_preprocessor_lines(text)
     if re.search(
-        r"^[ \t]*(?:user\s+function|static\s+function|main\s+function|function)\b",
+        r"^[ \t]*(?:user\s+function|static\s+function|main\s+function)\b",
         body,
         re.IGNORECASE | re.MULTILINE,
     ):
         score += 0.30
+    # A bare ``function`` header is too weak to be an ADVPL signal on its own:
+    # ``function name(...)`` is idiomatic JavaScript and would otherwise
+    # outrank the JavaScript markers and send the source to the ADVPL
+    # validator (false ``unclosed_block``). The ADVPL-specific prefixes above
+    # keep their own weight and never match here, so there is no double count.
+    if re.search(
+        r"^[ \t]*function\b",
+        body,
+        re.IGNORECASE | re.MULTILINE,
+    ):
+        score += 0.10
     if re.search(
         r"^[ \t]*(?:local|private|public)\b",
         body,
@@ -191,6 +188,23 @@ def _advpl_score(text: str) -> float:
         score += 0.15
     if re.search(r"\b(?:msginfo|reclock)\b|\bfw[a-z]\w*", body, re.IGNORECASE):
         score += 0.10
+    # Short ADVPL snippets often omit ``Local``/function declarations. A plain
+    # ``If`` alone is too weak (it also occurs in C-like code), so the bonus is
+    # conditional on a real ADVPL signal: a matching ``EndIf``, ``MsgInfo``, or
+    # ``Return Nil``.
+    has_if = bool(
+        re.search(
+            r"^[ \t]*if\b",
+            body,
+            re.IGNORECASE | re.MULTILINE,
+        )
+    )
+    if has_if and re.search(r"\bendif\b", body, re.IGNORECASE):
+        score += 0.20
+    if has_if and re.search(r"\bmsginfo\b", body, re.IGNORECASE):
+        score += 0.15
+    if re.search(r"\breturn[ \t]+nil\b", body, re.IGNORECASE):
+        score += 0.15
     return min(1.0, score)
 
 
@@ -224,6 +238,15 @@ def _has_advpl_specific_markers(text: str) -> bool:
         or ":=" in text
         or re.search(r"\b(?:endif|enddo|endcase)\b", text, re.IGNORECASE)
         or re.search(r"\b(?:msginfo|reclock)\b|\bfw[a-z]\w*", text, re.IGNORECASE)
+        or re.search(r"\breturn[ \t]+nil\b", text, re.IGNORECASE)
+        or (
+            re.search(
+                r"^[ \t]*if\b",
+                text,
+                re.IGNORECASE | re.MULTILINE,
+            )
+            and re.search(r"\bendif\b", text, re.IGNORECASE)
+        )
     )
 
 

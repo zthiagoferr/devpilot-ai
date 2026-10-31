@@ -152,6 +152,66 @@ describe('ApiClient', () => {
     expect(result.corrected_code).toContain('Return');
   });
 
+  it('creates a correction batch through the authenticated endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              path: 'src/app.prg',
+              status: 'completed',
+              issues_targeted: 1,
+            },
+          ],
+          files_total: 1,
+          files_completed: 1,
+          files_failed: 0,
+          files_skipped: 0,
+          issues_resolved_total: 1,
+          issues_remaining_total: 0,
+          issues_new_total: 0,
+          partial: false,
+          budget_exceeded: false,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const api = setup(async () => 'token-123');
+    const result = await api.createCorrectionBatch({
+      analysis_id: 'analysis-1',
+      files: [
+        {
+          path: 'src/app.prg',
+          source_code: 'User Function X()\nReturn\n',
+          issues: [{ message: 'Bloco', severity: 'high', line: 2 }],
+        },
+      ],
+      language: 'advpl',
+      repository_context: { paths: ['src/app.prg'], tree_complete: true, truncated: false },
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('http://api.test/corrections/batch');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      analysis_id: 'analysis-1',
+      files: [
+        {
+          path: 'src/app.prg',
+          source_code: 'User Function X()\nReturn\n',
+          issues: [{ message: 'Bloco', severity: 'high', line: 2 }],
+        },
+      ],
+      language: 'advpl',
+      repository_context: { paths: ['src/app.prg'], tree_complete: true, truncated: false },
+    });
+    const headers = init?.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Bearer token-123');
+    expect(result.files_completed).toBe(1);
+    expect(result.results[0]?.path).toBe('src/app.prg');
+  });
+
   it('lists, reads and decides corrections with the bearer token', async () => {
     fetchMock.mockImplementation(
       async () =>

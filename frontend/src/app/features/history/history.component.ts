@@ -12,6 +12,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
 import { ErrorStateComponent } from '../../shared/components/error-state/error-state.component';
 import { IconComponent } from '../../shared/components/icon/icon.component';
 import { SkeletonComponent } from '../../shared/components/skeleton/skeleton.component';
+import { resolveScoreStatus } from '../../shared/utils/pt-br-messages';
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short',
@@ -96,6 +97,13 @@ export class HistoryComponent {
   }
 
   protected scoreLabel(analysis: Analysis): string {
+    const status = resolveScoreStatus(
+      analysis.result?.score_status,
+      analysis.result?.validation_skipped,
+    );
+    if (status === 'skipped' || status === 'unavailable') {
+      return '—';
+    }
     const score = analysis.result?.score;
     return typeof score === 'number' && Number.isFinite(score) ? `${Math.round(score)}/100` : '—';
   }

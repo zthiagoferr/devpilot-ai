@@ -2,7 +2,13 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClient } from '../../../core/api/api-client';
-import { Relations, RepositoryLoad } from '../../../core/api/api.types';
+import { ApiError } from '../../../core/api/api-error.mapper';
+import {
+  CorrectionBatchResponse,
+  Correction,
+  Relations,
+  RepositoryLoad,
+} from '../../../core/api/api.types';
 import { RepositoryAnalysisComponent } from './repository-analysis.component';
 
 const RELATIONS: Relations = {
@@ -63,13 +69,84 @@ const ANALYSIS = {
   created_at: '2026-04-01T12:00:00Z',
 };
 
+function correction(id: string, file: string): Correction {
+  return {
+    id,
+    analysis_id: 'abc',
+    language: 'python',
+    file,
+    issue_ref: 'print',
+    original_code: 'print ("x")\n',
+    corrected_code: 'print("x")\n',
+    diff: `--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-print ("x")\n+print("x")\n`,
+    explanation: `Ajuste em ${file}.`,
+    origin: 'ai',
+    post_validation: {
+      status: 'passed',
+      target_resolved: true,
+      issues: [],
+      summary: 'ok',
+      issues_resolved: [{ message: 'print', severity: 'low', line: 1 }],
+      issues_remaining: [],
+      issues_new: [],
+      issues_warnings: [],
+    },
+    status: 'pending',
+    model: 'fake',
+    protheus_version: null,
+    created_at: '2026-10-30T12:00:00Z',
+    decided_at: null,
+  };
+}
+
+const BATCH: CorrectionBatchResponse = {
+  results: [
+    {
+      path: 'src/sample.py',
+      status: 'completed',
+      correction: correction('c1', 'src/sample.py'),
+      issues_targeted: 1,
+    },
+    {
+      path: 'tests/test_sample.py',
+      status: 'completed',
+      correction: correction('c2', 'tests/test_sample.py'),
+      issues_targeted: 1,
+    },
+    {
+      path: 'src/financeiro.prg',
+      status: 'failed',
+      issues_targeted: 0,
+      reason: 'provider_error',
+      error_code: 'provider_error',
+      error_status: 502,
+      error_detail: 'The AI provider could not complete this file.',
+    },
+  ],
+  files_total: 3,
+  files_completed: 2,
+  files_failed: 1,
+  files_skipped: 0,
+  issues_resolved_total: 2,
+  issues_remaining_total: 0,
+  issues_new_total: 0,
+  partial: true,
+  budget_exceeded: false,
+};
+
 describe('RepositoryAnalysisComponent', () => {
   const loadRepository = vi.fn();
   const createAnalysis = vi.fn();
+  const createCorrectionBatch = vi.fn();
+  const decideCorrection = vi.fn();
+  const createCorrection = vi.fn();
 
   beforeEach(async () => {
     loadRepository.mockReset();
     createAnalysis.mockReset();
+    createCorrectionBatch.mockReset();
+    decideCorrection.mockReset();
+    createCorrection.mockReset();
     loadRepository.mockResolvedValue(PAYLOAD);
     createAnalysis.mockResolvedValue(ANALYSIS);
 
@@ -78,7 +155,13 @@ describe('RepositoryAnalysisComponent', () => {
       providers: [
         {
           provide: ApiClient,
-          useValue: { loadRepository, createAnalysis },
+          useValue: {
+            loadRepository,
+            createAnalysis,
+            createCorrectionBatch,
+            decideCorrection,
+            createCorrection,
+          },
         },
       ],
     }).compileComponents();
@@ -324,6 +407,306 @@ describe('RepositoryAnalysisComponent', () => {
     const fileSelect = selectById(element, 'repository-file');
     expect(fileSelect?.disabled).toBe(true);
     expect(element.textContent).toContain('Nenhum arquivo elegível encontrado');
+  });
+
+  function batchCheckbox(element: HTMLElement, path: string): HTMLInputElement | null {
+    const label = Array.from(element.querySelectorAll<HTMLLabelElement>('.batch-option')).find(
+      (item) => (item.textContent ?? '').includes(path),
+    );
+    return label?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null;
+  }
+
+  function batchButton(element: HTMLElement): HTMLButtonElement | undefined {
+    return Array.from(element.querySelectorAll('button')).find((button) =>
+      (button.textContent ?? '').includes('Corrigir arquivos selecionados'),
+    );
+  }
+
+  async function loadRepositoryFiles(
+    fixture: ComponentFixture<RepositoryAnalysisComponent>,
+    element: HTMLElement,
+    payload: RepositoryLoad = PAYLOAD,
+  ): Promise<void> {
+    loadRepository.mockResolvedValue(payload);
+    const repository = inputByLabel(element, 'Repositório GitHub');
+    repository.value = 'pypa/sampleproject';
+    repository.dispatchEvent(new Event('input', { bubbles: true }));
+    clickLoad(element);
+    await settle(fixture);
+  }
+
+  it('lists only eligible files and enables the batch button from 1 to 3 selections', async () => {
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await loadRepositoryFiles(fixture, element, {
+      ...PAYLOAD,
+      files: [
+        ...PAYLOAD.files,
+        { path: '.env', size: 20, source_code: 'TOKEN=secret', language: 'unknown' },
+        { path: 'notes.txt', size: 5, source_code: 'texto', language: 'unknown' },
+      ],
+    });
+
+    const checkboxes = Array.from(
+      element.querySelectorAll<HTMLInputElement>('.batch-option input[type="checkbox"]'),
+    );
+    expect(checkboxes).toHaveLength(3);
+    expect(element.textContent).toContain('2 arquivos ocultos');
+    expect(batchButton(element)?.disabled).toBe(true);
+
+    batchCheckbox(element, 'src/sample.py')?.click();
+    fixture.detectChanges();
+    expect(batchButton(element)?.disabled).toBe(false);
+    expect(batchButton(element)?.textContent).toContain('(1)');
+
+    batchCheckbox(element, 'tests/test_sample.py')?.click();
+    batchCheckbox(element, 'src/financeiro.prg')?.click();
+    fixture.detectChanges();
+
+    expect(batchButton(element)?.textContent).toContain('(3)');
+    expect(element.textContent).toContain('limite de 3 arquivos atingido');
+    expect(batchCheckbox(element, 'src/sample.py')?.disabled).toBe(false);
+
+    batchCheckbox(element, 'src/sample.py')?.click();
+    fixture.detectChanges();
+    expect(batchButton(element)?.textContent).toContain('(2)');
+    expect(
+      Array.from(element.querySelectorAll('.repo-form__batch-selected-item')).map(
+        (item) => item.textContent ?? '',
+      ),
+    ).toEqual([
+      expect.stringContaining('tests/test_sample.py'),
+      expect.stringContaining('src/financeiro.prg'),
+    ]);
+  });
+
+  it('sends only the selected files with the repository context', async () => {
+    createCorrectionBatch.mockResolvedValue(BATCH);
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await loadRepositoryFiles(fixture, element);
+
+    batchCheckbox(element, 'src/sample.py')?.click();
+    batchCheckbox(element, 'src/financeiro.prg')?.click();
+    fixture.detectChanges();
+    batchButton(element)?.click();
+    await settle(fixture);
+
+    expect(createCorrectionBatch).toHaveBeenCalledTimes(1);
+    expect(createCorrectionBatch).toHaveBeenCalledWith({
+      files: [
+        { path: 'src/sample.py', source_code: 'print("sample")' },
+        { path: 'src/financeiro.prg', source_code: 'User Function Teste()\nReturn\n' },
+      ],
+      repository_context: {
+        paths: PAYLOAD.paths,
+        tree_complete: true,
+        truncated: false,
+      },
+    });
+  });
+
+  it('shows the synchronous progress state and never sends the same batch twice', async () => {
+    let resolveBatch: (value: CorrectionBatchResponse) => void = () => {};
+    createCorrectionBatch.mockImplementation(
+      () =>
+        new Promise<CorrectionBatchResponse>((resolve) => {
+          resolveBatch = resolve;
+        }),
+    );
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await loadRepositoryFiles(fixture, element);
+    batchCheckbox(element, 'src/sample.py')?.click();
+    fixture.detectChanges();
+
+    batchButton(element)?.click();
+    fixture.detectChanges();
+    batchButton(element)?.click();
+    fixture.detectChanges();
+
+    expect(createCorrectionBatch).toHaveBeenCalledTimes(1);
+    expect(batchButton(element)?.disabled).toBe(true);
+    expect(element.textContent).toContain('Processando 1 arquivo com IA');
+    expect(element.textContent).toContain('até 90 segundos');
+
+    resolveBatch(BATCH);
+    await settle(fixture);
+
+    expect(element.textContent).toContain('Lote concluído com falhas ou arquivos pulados.');
+    expect(element.textContent).toContain('2 de 3 arquivos concluídos');
+  });
+
+  it('shows known issue counts for the analyzed file', async () => {
+    createAnalysis.mockResolvedValue({
+      ...ANALYSIS,
+      result: {
+        score: 70,
+        issues: [
+          { message: 'print', severity: 'low', line: 1 },
+          { message: 'espaçamento', severity: 'low', line: 2 },
+        ],
+        summary: 'ok',
+      },
+    });
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await loadRepositoryFiles(fixture, element);
+    const project = inputByLabel(element, 'Nome do projeto');
+    project.value = 'Sample';
+    project.dispatchEvent(new Event('input', { bubbles: true }));
+    const fileSelect = selectById(element, 'repository-file');
+    if (fileSelect !== null) {
+      fileSelect.value = 'src/sample.py';
+      fileSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    fixture.detectChanges();
+    element.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+    await settle(fixture);
+
+    expect(element.textContent).toContain('2 problemas conhecidos');
+    expect(element.textContent).toContain('problemas não analisados');
+  });
+
+  it('links the batch to the analysis and its known issues when authenticated', async () => {
+    createAnalysis.mockResolvedValue({
+      ...ANALYSIS,
+      result: {
+        score: 70,
+        issues: [
+          {
+            message: 'print com espaço',
+            severity: 'low',
+            line: 1,
+            rule_id: 'spacing',
+            code: 'spacing',
+            cause: 'spacing',
+          },
+        ],
+        summary: 'ok',
+      },
+    });
+    createCorrectionBatch.mockResolvedValue(BATCH);
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.componentRef.setInput('authenticated', true);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await loadRepositoryFiles(fixture, element);
+    const project = inputByLabel(element, 'Nome do projeto');
+    project.value = 'Sample';
+    project.dispatchEvent(new Event('input', { bubbles: true }));
+    const fileSelect = selectById(element, 'repository-file');
+    if (fileSelect !== null) {
+      fileSelect.value = 'src/sample.py';
+      fileSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    fixture.detectChanges();
+    element.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+    await settle(fixture);
+
+    batchCheckbox(element, 'src/sample.py')?.click();
+    batchCheckbox(element, 'src/financeiro.prg')?.click();
+    fixture.detectChanges();
+    batchButton(element)?.click();
+    await settle(fixture);
+
+    expect(createCorrectionBatch).toHaveBeenCalledWith({
+      analysis_id: 'abc',
+      files: [
+        {
+          path: 'src/sample.py',
+          source_code: 'print("sample")',
+          issues: [
+            {
+              message: 'print com espaço',
+              severity: 'low',
+              line: 1,
+              rule_id: 'spacing',
+              code: 'spacing',
+              cause: 'spacing',
+            },
+          ],
+        },
+        { path: 'src/financeiro.prg', source_code: 'User Function Teste()\nReturn\n' },
+      ],
+      repository_context: {
+        paths: PAYLOAD.paths,
+        tree_complete: true,
+        truncated: false,
+      },
+    });
+  });
+
+  it('renders the batch review and keeps decisions independent per file', async () => {
+    createCorrectionBatch.mockResolvedValue(BATCH);
+    decideCorrection.mockResolvedValue({ ...correction('c1', 'src/sample.py'), status: 'approved' });
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.componentRef.setInput('authenticated', true);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await loadRepositoryFiles(fixture, element);
+    batchCheckbox(element, 'src/sample.py')?.click();
+    batchCheckbox(element, 'tests/test_sample.py')?.click();
+    batchCheckbox(element, 'src/financeiro.prg')?.click();
+    fixture.detectChanges();
+    batchButton(element)?.click();
+    await settle(fixture);
+
+    expect(element.textContent).toContain('Correção de arquivos selecionados');
+    expect(element.textContent).toContain('Lote parcial');
+    expect(element.textContent).toContain('falha do provedor de IA');
+    expect(element.textContent).toContain('Tentar novamente');
+    expect(element.querySelectorAll('.diff')).toHaveLength(2);
+
+    const approveButtons = Array.from(element.querySelectorAll('button')).filter((button) =>
+      (button.textContent ?? '').includes('Aprovar'),
+    );
+    expect(approveButtons).toHaveLength(2);
+    approveButtons[0]?.click();
+    await settle(fixture);
+
+    expect(decideCorrection).toHaveBeenCalledTimes(1);
+    const cards = element.querySelectorAll('.batch-item');
+    expect(cards[0]?.textContent).toContain('Aprovada');
+    expect(cards[1]?.textContent).toContain('Aguardando decisão');
+  });
+
+  it.each([
+    [422, 'O lote de correção é inválido', {}],
+    [503, 'A correção de IA não está configurada no servidor', {}],
+    [
+      429,
+      'Muitas solicitações de correção. Aguarde 12 s e tente novamente.',
+      { retryAfterSeconds: 12 },
+    ],
+    [404, 'A análise vinculada ao lote não foi encontrada', {}],
+  ])('translates a global batch error %i to pt-BR', async (status, message, options) => {
+    createCorrectionBatch.mockRejectedValue(
+      new ApiError('validation', 'backend detail', { status, ...options }),
+    );
+    const fixture = TestBed.createComponent(RepositoryAnalysisComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await loadRepositoryFiles(fixture, element);
+    batchCheckbox(element, 'src/sample.py')?.click();
+    fixture.detectChanges();
+    batchButton(element)?.click();
+    await settle(fixture);
+
+    expect(element.textContent).toContain(message);
+    expect(element.textContent).not.toContain('backend detail');
+    expect(element.textContent).not.toContain('Lote concluído');
   });
 
   it('emits started on submit and cleared when the form is cleared', async () => {

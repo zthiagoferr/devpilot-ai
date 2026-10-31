@@ -21,6 +21,14 @@ export interface FirebaseRuntimeConfig {
   readonly storageBucket?: string;
   readonly messagingSenderId?: string;
   readonly appId?: string;
+  /**
+   * Optional allow-list of OAuth provider ids (`github`, `google`, `apple`,
+   * `microsoft`). Absent (or empty) means every provider is available.
+   *
+   * This key is app configuration only and is stripped before the object is
+   * handed to `initializeApp`.
+   */
+  readonly providers?: readonly string[];
 }
 
 export const FIREBASE_CONFIG: FirebaseRuntimeConfig = {

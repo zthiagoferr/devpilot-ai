@@ -16,6 +16,75 @@ export interface RepositoryLanguageOption {
   readonly label: string;
 }
 
+/**
+ * Maximum number of files the batch correction endpoint accepts.
+ * Mirrors the backend setting `CORRECTION_BATCH_MAX_FILES` (default 3); keep
+ * both in sync when the server limit changes.
+ */
+export const MAX_CORRECTION_FILES = 3;
+
+/**
+ * Mirrors the backend per-file source limit used by batch corrections
+ * (`CORRECTION_MAX_SOURCE_BYTES`, default 200000 bytes).
+ */
+export const MAX_CORRECTION_SOURCE_BYTES = 200_000;
+
+/** Extensions with a deterministic backend validator. */
+const SUPPORTED_SOURCE_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.py',
+  '.pyi',
+  '.prw',
+  '.prg',
+  '.ch',
+  '.html',
+  '.htm',
+  '.css',
+  '.js',
+  '.mjs',
+  '.cjs',
+]);
+
+/** Credential-bearing names that must never be sent to the AI provider. */
+const SENSITIVE_FILENAMES: ReadonlySet<string> = new Set([
+  '.env',
+  '.netrc',
+  '.npmrc',
+  '.pgpass',
+  'credentials',
+  'id_dsa',
+  'id_ecdsa',
+  'id_ed25519',
+  'id_rsa',
+]);
+
+const SENSITIVE_PREFIXES: readonly string[] = [
+  '.env.',
+  'credentials.',
+  'id_dsa',
+  'id_ecdsa',
+  'id_ed25519',
+  'id_rsa',
+];
+
+const SENSITIVE_SUFFIXES: readonly string[] = ['.jks', '.key', '.keystore', '.p12', '.pem', '.pfx'];
+
+const SENSITIVE_DIRECTORIES: ReadonlySet<string> = new Set([
+  '.aws',
+  '.git',
+  '.gnupg',
+  '.ssh',
+  'node_modules',
+]);
+
+const ALLOWED_EXAMPLE_FILES: ReadonlySet<string> = new Set([
+  '.env.example',
+  '.env.sample',
+  '.env.template',
+]);
+
+/** Outcome of a checkbox toggle in the batch selection list. */
+export type CorrectionSelectionResult = 'added' | 'removed' | 'limit' | 'unavailable';
+
 const EMPTY_MESSAGE =
   'Nenhum arquivo Python, ADVPL, HTML5, CSS3 ou JavaScript elegível foi encontrado neste repositório.';
 
@@ -59,6 +128,10 @@ export class RepositoryStore {
   readonly relations = signal<Relations | null>(null);
   readonly protheus = signal<ProtheusAppsJson | null>(null);
   readonly languageFilter = signal('all');
+  /** Issue count of the file just analyzed, keyed by repository path. */
+  readonly issueCounts = signal<Readonly<Record<string, number>>>({});
+  /** Paths checked for the batch correction, preserving the click order. */
+  readonly selectedCorrectionPaths = signal<readonly string[]>([]);
 
   readonly isLoading = computed(() => this.state() === 'loading');
   readonly isEmpty = computed(() => this.state() === 'empty');
@@ -92,6 +165,26 @@ export class RepositoryStore {
   });
 
   readonly filteredCount = computed(() => this.filteredFiles().length);
+
+  /** Files the client can submit to the batch endpoint. */
+  readonly correctionCandidates = computed<readonly RepositoryFile[]>(() =>
+    this.files().filter((file) => isCorrectionEligible(file)),
+  );
+
+  readonly hiddenCorrectionFileCount = computed(
+    () => this.files().length - this.correctionCandidates().length,
+  );
+
+  readonly correctionSelection = computed<readonly RepositoryFile[]>(() => {
+    const selected = new Set(this.selectedCorrectionPaths());
+    return this.correctionCandidates().filter((file) => selected.has(file.path));
+  });
+
+  readonly correctionSelectionCount = computed(() => this.correctionSelection().length);
+
+  readonly correctionSelectionLimitReached = computed(
+    () => this.correctionSelectionCount() >= MAX_CORRECTION_FILES,
+  );
 
   readonly hasAppsJson = computed(() => {
     const appsJson = this.protheus() ?? this.relations()?.protheus?.apps_json ?? null;
@@ -206,6 +299,50 @@ export class RepositoryStore {
     this.selectedPath.set(path);
   }
 
+  /** Records how many findings the last analysis reported for one path. */
+  recordIssueCount(path: string, count: number): void {
+    if (path === '' || !Number.isFinite(count) || count < 0) {
+      return;
+    }
+    this.issueCounts.update((current) => ({ ...current, [path]: Math.round(count) }));
+  }
+
+  /** Known issue count for a path, or `null` when it was never analyzed. */
+  issueCountFor(path: string): number | null {
+    return this.issueCounts()[path] ?? null;
+  }
+
+  isCorrectionSelected(path: string): boolean {
+    return this.selectedCorrectionPaths().includes(path);
+  }
+
+  /**
+   * Checks/unchecks one file of the batch.
+   *
+   * The limit is enforced here (not only in the template) so no caller can
+   * build a payload above the backend maximum. A path that is not eligible can
+   * never be selected.
+   */
+  toggleCorrectionFile(path: string): CorrectionSelectionResult {
+    const current = this.selectedCorrectionPaths();
+    if (current.includes(path)) {
+      this.selectedCorrectionPaths.set(current.filter((item) => item !== path));
+      return 'removed';
+    }
+    if (!this.correctionCandidates().some((file) => file.path === path)) {
+      return 'unavailable';
+    }
+    if (current.length >= MAX_CORRECTION_FILES) {
+      return 'limit';
+    }
+    this.selectedCorrectionPaths.set([...current, path]);
+    return 'added';
+  }
+
+  clearCorrectionSelection(): void {
+    this.selectedCorrectionPaths.set([]);
+  }
+
   /** Applies the UI-only language filter, clearing a now-hidden selection. */
   setLanguageFilter(language: string): void {
     this.languageFilter.set(language);
@@ -234,6 +371,8 @@ export class RepositoryStore {
     this.relations.set(null);
     this.protheus.set(null);
     this.languageFilter.set('all');
+    this.issueCounts.set({});
+    this.selectedCorrectionPaths.set([]);
   }
 
   /** Clears the previous list and selection at the start of every load. */
@@ -248,6 +387,8 @@ export class RepositoryStore {
     this.relations.set(null);
     this.protheus.set(null);
     this.languageFilter.set('all');
+    this.issueCounts.set({});
+    this.selectedCorrectionPaths.set([]);
   }
 }
 
@@ -271,6 +412,60 @@ export function formatBytes(bytes: number): string {
 
 export function languageName(language: string): string {
   return LANGUAGE_NAMES[language] ?? 'Desconhecida';
+}
+
+/** Lowercase extension including the leading dot, or `''`. */
+export function sourceExtension(path: string): string {
+  const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
+  const index = name.lastIndexOf('.');
+  return index <= 0 ? '' : name.slice(index);
+}
+
+/** Whether the backend has a deterministic validator for this path. */
+export function isSupportedSourcePath(path: string): boolean {
+  return SUPPORTED_SOURCE_EXTENSIONS.has(sourceExtension(path));
+}
+
+/**
+ * Whether a path is credential-bearing.
+ *
+ * Mirrors the backend lexical check so the UI never offers a secret file for
+ * correction. Example env files are documentation, not secrets.
+ */
+export function isSensitiveRepositoryPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/').toLowerCase();
+  const name = normalized.slice(normalized.lastIndexOf('/') + 1);
+  if (ALLOWED_EXAMPLE_FILES.has(name)) {
+    return false;
+  }
+  const directories = normalized.split('/').slice(0, -1);
+  if (directories.some((part) => SENSITIVE_DIRECTORIES.has(part))) {
+    return true;
+  }
+  if (SENSITIVE_FILENAMES.has(name)) {
+    return true;
+  }
+  if (SENSITIVE_PREFIXES.some((prefix) => name.startsWith(prefix))) {
+    return true;
+  }
+  return SENSITIVE_SUFFIXES.some((suffix) => name.endsWith(suffix));
+}
+
+/** UTF-8 byte length of a source string. */
+export function sourceByteLength(source: string): number {
+  return new TextEncoder().encode(source).length;
+}
+
+/** Whether a loaded file can be sent to the batch correction endpoint. */
+export function isCorrectionEligible(file: RepositoryFile): boolean {
+  const source = file.source_code ?? '';
+  if (source.trim() === '') {
+    return false;
+  }
+  if (isSensitiveRepositoryPath(file.path) || !isSupportedSourcePath(file.path)) {
+    return false;
+  }
+  return sourceByteLength(source) <= MAX_CORRECTION_SOURCE_BYTES;
 }
 
 function languageRank(language: string): number {

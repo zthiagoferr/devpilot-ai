@@ -24,17 +24,27 @@ from app.db.session import get_db_session
 from app.languages.base import UnsupportedLanguageError
 from app.llm.factory import create_llm_provider
 from app.schemas.correction import (
+    CorrectionBatchCreate,
+    CorrectionBatchResponse,
     CorrectionCreate,
     CorrectionDecision,
     CorrectionResponse,
 )
+from app.services.correction_batch_service import CorrectionBatchService
 from app.services.correction_errors import (
+    CorrectionBatchInvalidPathError,
+    CorrectionBatchTooLargeError,
+    CorrectionBatchTooManyFilesError,
+    CorrectionBatchUnsupportedFileError,
     CorrectionInvalidResponseError,
+    CorrectionNoIssuesError,
     CorrectionNotFoundError,
     CorrectionProviderError,
     CorrectionSafetyError,
     CorrectionSourceTooLargeError,
     CorrectionStateError,
+    CorrectionTimeoutError,
+    CorrectionTooManyIssuesError,
     CorrectionUnavailableError,
 )
 from app.services.correction_service import CorrectionService, serialize_correction
@@ -99,6 +109,16 @@ async def get_correction_service(
     )
 
 
+async def get_correction_batch_service(
+    service: CorrectionService = Depends(get_correction_service),
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
+) -> CorrectionBatchService:
+    # The same request session used by the repositories: the batch commits
+    # after each completed file so a later persistence failure preserves them.
+    return CorrectionBatchService(service, session=session, settings=settings)
+
+
 @router.post("", response_model=CorrectionResponse, status_code=201)
 async def create_correction(
     request: CorrectionCreate,
@@ -118,6 +138,8 @@ async def create_correction(
         )
     except UnsupportedLanguageError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    except (CorrectionTooManyIssuesError, CorrectionNoIssuesError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     except CorrectionSourceTooLargeError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from None
     except CorrectionNotFoundError as exc:
@@ -126,17 +148,86 @@ async def create_correction(
         raise HTTPException(status_code=409, detail=str(exc)) from None
     except CorrectionUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
-    except (
-        CorrectionInvalidResponseError,
-        CorrectionSafetyError,
-        CorrectionProviderError,
-    ):
+    except CorrectionTimeoutError:
+        # Only the error type and the request size are logged; the source code,
+        # the prompt, and the provider payload never reach the logs.
+        logger.warning(
+            "correction timed out status=504 source_bytes=%d",
+            len(request.source_code.encode("utf-8")),
+        )
+        raise HTTPException(
+            status_code=504,
+            detail="The AI provider timed out. Try a smaller file or try again.",
+        ) from None
+    except CorrectionInvalidResponseError:
+        logger.warning(
+            "correction invalid response status=502 source_bytes=%d",
+            len(request.source_code.encode("utf-8")),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="The AI provider returned an invalid response.",
+        ) from None
+    except CorrectionSafetyError:
+        logger.warning(
+            "correction rejected by safety checks status=422 source_bytes=%d",
+            len(request.source_code.encode("utf-8")),
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="The proposed correction was rejected by safety checks.",
+        ) from None
+    except CorrectionProviderError:
+        logger.warning(
+            "correction provider error status=502 source_bytes=%d",
+            len(request.source_code.encode("utf-8")),
+        )
         raise HTTPException(
             status_code=502,
             detail="The AI provider returned an unusable correction.",
         ) from None
 
     return serialize_correction(correction)
+
+
+@router.post("/batch", response_model=CorrectionBatchResponse, status_code=200)
+async def create_correction_batch(
+    request: CorrectionBatchCreate,
+    service: CorrectionBatchService = Depends(get_correction_batch_service),
+    user: VerifiedUser | None = Depends(get_optional_user),
+) -> CorrectionBatchResponse:
+    """Request AI corrections for a small set of files in one call.
+
+    The batch is a dedicated route instead of a second response shape on
+    ``POST /corrections``: a union response would change the OpenAPI schema of
+    the existing endpoint and break generated clients. Each completed file is
+    persisted as its own pending correction, so the per-file decision endpoint
+    keeps full ownership of approval. Files that fail or are skipped do not
+    discard the corrections already completed.
+
+    Only request-wide problems abort the call (``422`` limits/path/language,
+    ``404`` foreign analysis, ``503`` no provider, ``429`` rate limit). A
+    per-file failure is reported inside ``results`` with its own sanitized
+    status so the caller still receives the successful files.
+    """
+    try:
+        return await service.create_batch(
+            request,
+            user_id=user.uid if user is not None else None,
+        )
+    except UnsupportedLanguageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except (
+        CorrectionBatchTooManyFilesError,
+        CorrectionBatchTooLargeError,
+        CorrectionBatchInvalidPathError,
+        CorrectionBatchUnsupportedFileError,
+    ) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except CorrectionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except CorrectionUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
 
 
 @router.get("", response_model=list[CorrectionResponse])

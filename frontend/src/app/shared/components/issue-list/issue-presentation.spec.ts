@@ -18,6 +18,43 @@ describe('issue presentation', () => {
     expect(causeLabel({ message: 'x' })).toBe('');
   });
 
+  it('translates the causes added by the multi-language validators', () => {
+    const labels: ReadonlyArray<[string, string]> = [
+      ['undefined_name', 'Nome não definido'],
+      ['division_by_zero', 'Divisão por zero'],
+      ['incompatible_operand_types', 'Tipos de operandos incompatíveis'],
+      ['index_out_of_range', 'Índice fora do intervalo'],
+      ['control_flow', 'Fluxo de controle suspeito'],
+      ['break_outside_loop', 'break fora de laço'],
+      ['continue_outside_loop', 'continue fora de laço'],
+      ['duplicate_dict_key', 'Chave duplicada no dicionário'],
+      ['unverified_totvs_api', 'Identificador TOTVS/Protheus não verificado'],
+      ['assignment_in_condition', 'Atribuição em condição'],
+      ['loop_without_progress', 'Laço sem progresso'],
+      ['suspicious_loose_equality', 'Comparação solta (==) suspeita'],
+      ['nan_comparison', 'Comparação com NaN'],
+      ['undeclared_reference', 'Referência não declarada'],
+      ['invalid_value', 'Valor CSS inválido'],
+      ['unknown_property', 'Propriedade CSS desconhecida'],
+      ['invalid_unit', 'Unidade CSS inválida'],
+      ['missing_title', 'Título do documento ausente'],
+      ['unsafe_target_blank', 'Link com target="_blank" sem rel seguro'],
+      ['button_without_label', 'Botão sem rótulo acessível'],
+      ['undeclared_variable', 'Variável não declarada'],
+      ['deprecated_api', 'API obsoleta'],
+      ['obsolete_include', 'Include obsoleto'],
+      ['include_case_convention', 'Convenção de caixa no include'],
+      ['api_in_loop', 'API chamada dentro de laço'],
+      ['ui_call_in_transaction', 'Interação de UI dentro de transação'],
+      ['direct_metadata_access', 'Acesso direto a metadados do Protheus'],
+      ['naming_convention', 'Convenção de nomes ADVPL'],
+    ];
+
+    for (const [cause, label] of labels) {
+      expect(causeLabel({ message: 'x', cause })).toBe(label);
+    }
+  });
+
   it('formats file:line:column with partial locations', () => {
     expect(issueLocation({ message: 'x', file: 'src/app.prg', line: 2, column: 4 })).toBe(
       'src/app.prg:2:4',

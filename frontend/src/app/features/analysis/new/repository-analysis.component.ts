@@ -4,6 +4,7 @@ import {
   ElementRef,
   computed,
   inject,
+  input,
   output,
   signal,
 } from '@angular/core';
@@ -13,18 +14,30 @@ import { analysisSuccessMessage } from '../../../core/api/analysis-summary';
 import { isApiError } from '../../../core/api/api-error.mapper';
 import {
   Analysis,
+  AnalysisIssue,
   AnalysisLanguage,
+  Correction,
+  CorrectionBatchCreate,
+  CorrectionBatchResponse,
+  CorrectionRepositoryContext,
   RepositoryContext,
   RepositoryFile,
 } from '../../../core/api/api.types';
 import {
+  MAX_CORRECTION_FILES,
   RepositoryStore,
   formatBytes,
   languageName,
+  sourceByteLength,
 } from '../../../core/repositories/repository-store';
 import { repositoryEmptyMessagePtBr } from '../../../shared/utils/pt-br-messages';
 import { BadgeComponent } from '../../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
+import {
+  CorrectionBatchPanelComponent,
+  CorrectionBatchSource,
+} from '../../../shared/components/correction-batch-panel/correction-batch-panel.component';
+import { toIssueRef } from '../../../shared/components/correction-panel/correction-issue-ref';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import {
   InlineStatusComponent,
@@ -56,6 +69,7 @@ const MAX_PROJECT_NAME = 120;
   imports: [
     BadgeComponent,
     ButtonComponent,
+    CorrectionBatchPanelComponent,
     IconComponent,
     InlineStatusComponent,
     InputComponent,
@@ -71,6 +85,11 @@ export class RepositoryAnalysisComponent {
   readonly started = output<void>();
   /** Emitted when the form is cleared, so the shell can drop its result. */
   readonly cleared = output<void>();
+  /** Emitted when a decision needs an authenticated session. */
+  readonly loginRequested = output<void>();
+  readonly decided = output<Correction>();
+  /** Session state from the shell; controls whether `analysis_id` is sent. */
+  readonly authenticated = input(false);
 
   private readonly api = inject(ApiClient);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -84,6 +103,16 @@ export class RepositoryAnalysisComponent {
   protected readonly submitted = signal(false);
   protected readonly submitting = signal(false);
   protected readonly submitStatus = signal<FormStatus | null>(null);
+
+  /** Last analysis of the repository tab; source of the known issue counts. */
+  private readonly lastAnalysis = signal<Analysis | null>(null);
+  private readonly lastAnalyzedPath = signal('');
+  /** Bumped when the form is cleared so a late batch response is discarded. */
+  private batchGeneration = 0;
+  protected readonly batchResponse = signal<CorrectionBatchResponse | null>(null);
+  protected readonly batchRequesting = signal(false);
+  protected readonly batchStatus = signal<FormStatus | null>(null);
+  protected readonly batchSelectionNotice = signal<string | null>(null);
 
   protected readonly loadStatus = computed<FormStatus | null>(() => {
     switch (this.store.state()) {
@@ -145,6 +174,65 @@ export class RepositoryAnalysisComponent {
   });
 
   protected readonly contextFileCount = computed(() => this.repositoryContext()?.files.length ?? 0);
+
+  protected readonly correctionCandidates = computed(() => this.store.correctionCandidates());
+
+  protected readonly correctionSelectionCount = computed(() =>
+    this.store.correctionSelectionCount(),
+  );
+
+  protected readonly maxCorrectionFiles = MAX_CORRECTION_FILES;
+
+  protected readonly correctionSelectionBytes = computed(() =>
+    this.store
+      .correctionSelection()
+      .reduce((total, file) => total + sourceByteLength(file.source_code ?? ''), 0),
+  );
+
+  protected readonly correctionSelectionBytesLabel = computed(() =>
+    formatBytes(this.correctionSelectionBytes()),
+  );
+
+  protected readonly correctionBatchDisabled = computed(
+    () =>
+      this.correctionSelectionCount() === 0 ||
+      this.correctionSelectionCount() > MAX_CORRECTION_FILES ||
+      this.batchRequesting() ||
+      this.store.isLoading() ||
+      this.submitting(),
+  );
+
+  protected readonly correctionProgressMessage = computed(() => {
+    const count = this.correctionSelectionCount();
+    // "90 segundos" mirrors the backend batch budget
+    // (`CORRECTION_BATCH_BUDGET_SECONDS`, default 90).
+    return `Processando ${count} ${count === 1 ? 'arquivo' : 'arquivos'} com IA. Isso pode levar até 90 segundos.`;
+  });
+
+  /** Repository context shared by every file of the batch. */
+  protected readonly correctionRepositoryContext = computed<CorrectionRepositoryContext>(() => ({
+    paths: [...this.store.paths()],
+    tree_complete: this.store.treeComplete(),
+    truncated: this.store.truncated(),
+  }));
+
+  /** Every eligible source, so a failed item can be retried after a new selection. */
+  protected readonly correctionSources = computed<Readonly<Record<string, CorrectionBatchSource>>>(
+    () => {
+      const sources: Record<string, CorrectionBatchSource> = {};
+      for (const file of this.store.correctionCandidates()) {
+        sources[file.path] = {
+          source_code: file.source_code ?? '',
+          issues: this.knownIssues(file.path),
+        };
+      }
+      return sources;
+    },
+  );
+
+  protected readonly batchAnalysisId = computed(() =>
+    this.authenticated() ? (this.lastAnalysis()?.id ?? null) : null,
+  );
 
   protected readonly projectNameError = computed(() => {
     if (!this.submitted()) {
@@ -223,7 +311,116 @@ export class RepositoryAnalysisComponent {
   protected async loadFiles(): Promise<void> {
     this.submitted.set(false);
     this.submitStatus.set(null);
+    this.clearBatch();
     await this.store.load(this.repositoryUrl(), this.branch(), this.language());
+  }
+
+  protected issueCountLabel(file: RepositoryFile): string {
+    const count = this.store.issueCountFor(file.path);
+    if (count === null) {
+      return 'problemas não analisados';
+    }
+    return `${count} ${count === 1 ? 'problema' : 'problemas'} conhecidos`;
+  }
+
+  protected toggleBatchFile(path: string): void {
+    const result = this.store.toggleCorrectionFile(path);
+    if (result === 'limit') {
+      this.batchSelectionNotice.set(
+        `Máx. ${MAX_CORRECTION_FILES} arquivos por lote. Desmarque um arquivo para escolher outro.`,
+      );
+      return;
+    }
+    this.batchSelectionNotice.set(null);
+  }
+
+  protected removeBatchFile(path: string): void {
+    this.store.toggleCorrectionFile(path);
+    this.batchSelectionNotice.set(null);
+  }
+
+  protected async runCorrectionBatch(): Promise<void> {
+    if (this.batchRequesting()) {
+      return;
+    }
+    const count = this.correctionSelectionCount();
+    if (count === 0) {
+      this.batchSelectionNotice.set('Selecione pelo menos um arquivo para corrigir.');
+      return;
+    }
+    if (count > MAX_CORRECTION_FILES) {
+      this.batchSelectionNotice.set(`Máx. ${MAX_CORRECTION_FILES} arquivos por lote.`);
+      return;
+    }
+
+    this.batchRequesting.set(true);
+    this.batchSelectionNotice.set(null);
+    this.batchResponse.set(null);
+    this.batchStatus.set({ tone: 'loading', message: this.correctionProgressMessage() });
+    const generation = ++this.batchGeneration;
+
+    try {
+      const response = await this.api.createCorrectionBatch(this.correctionBatchPayload());
+      if (generation !== this.batchGeneration) {
+        return;
+      }
+      this.batchResponse.set(response);
+      this.store.clearCorrectionSelection();
+      this.batchStatus.set({
+        tone: response.partial ? 'warning' : 'success',
+        message: response.partial
+          ? 'Lote concluído com falhas ou arquivos pulados. Revise cada item abaixo.'
+          : 'Lote concluído. Revise e decida cada arquivo individualmente.',
+      });
+    } catch (error) {
+      if (isAbortError(error) || generation !== this.batchGeneration) {
+        return;
+      }
+      this.batchStatus.set({
+        tone: 'error',
+        message: correctionBatchErrorMessage(error),
+      });
+    } finally {
+      if (generation === this.batchGeneration) {
+        this.batchRequesting.set(false);
+      }
+    }
+  }
+
+  /** Targets known for a path; only the file just analyzed has any. */
+  private knownIssues(path: string): readonly AnalysisIssue[] {
+    if (this.lastAnalyzedPath() !== path) {
+      return [];
+    }
+    const analysis = this.lastAnalysis();
+    if (analysis === null) {
+      return [];
+    }
+    return (analysis.result?.issues ?? []).filter(
+      (issue) => issue.file === null || issue.file === undefined || issue.file === path,
+    );
+  }
+
+  private correctionBatchPayload(): CorrectionBatchCreate {
+    const analysisId = this.batchAnalysisId();
+    const language = this.language();
+    const protheusVersion = language === 'advpl' ? this.protheusVersion().trim() : '';
+    const files = this.store.correctionSelection().map((file) => {
+      const issues = this.knownIssues(file.path);
+      return {
+        path: file.path,
+        source_code: file.source_code ?? '',
+        ...(issues.length === 0 ? {} : { issues: issues.map(toIssueRef) }),
+      };
+    });
+
+    return {
+      ...(analysisId === null ? {} : { analysis_id: analysisId }),
+      files,
+      ...(language === 'auto' ? {} : { language }),
+      ...(protheusVersion === '' ? {} : { protheus_version: protheusVersion }),
+      repository_context: this.correctionRepositoryContext(),
+    };
   }
 
   protected async submit(event: Event): Promise<void> {
@@ -234,6 +431,7 @@ export class RepositoryAnalysisComponent {
 
     this.submitted.set(true);
     this.submitStatus.set(null);
+    this.clearBatch();
 
     const file = this.store.selectedFile();
     if (this.projectNameError() !== '' || this.repositoryUrlError() !== '' || file === null) {
@@ -280,6 +478,9 @@ export class RepositoryAnalysisComponent {
       });
 
       this.analyzed.emit(analysis);
+      this.lastAnalysis.set(analysis);
+      this.lastAnalyzedPath.set(file.path);
+      this.store.recordIssueCount(file.path, this.knownIssues(file.path).length);
       this.submitStatus.set({
         tone: analysis.status === 'completed' ? 'success' : 'warning',
         message: analysisSuccessMessage(analysis),
@@ -307,19 +508,53 @@ export class RepositoryAnalysisComponent {
     this.protheusVersion.set('');
     this.submitted.set(false);
     this.submitStatus.set(null);
+    this.clearBatch();
     this.store.clear();
     this.cleared.emit();
   }
 
   private clearLoadedFiles(): void {
     if (this.store.state() !== 'idle') {
+      this.clearBatch();
       this.store.clear();
     }
+  }
+
+  private clearBatch(): void {
+    this.batchGeneration += 1;
+    this.lastAnalysis.set(null);
+    this.lastAnalyzedPath.set('');
+    this.batchResponse.set(null);
+    this.batchRequesting.set(false);
+    this.batchStatus.set(null);
+    this.batchSelectionNotice.set(null);
+    this.store.clearCorrectionSelection();
   }
 
   private focusFirstInvalid(): void {
     setTimeout(() => {
       this.host.nativeElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
     }, 0);
+  }
+}
+
+function correctionBatchErrorMessage(error: unknown): string {
+  if (!isApiError(error)) {
+    return 'Não foi possível corrigir os arquivos selecionados. Tente novamente.';
+  }
+
+  switch (error.status) {
+    case 422:
+      return 'O lote de correção é inválido. Selecione no máximo 3 arquivos compatíveis, com caminhos relativos ao repositório.';
+    case 503:
+      return 'A correção de IA não está configurada no servidor. Configure o provedor de LLM e tente novamente.';
+    case 404:
+      return 'A análise vinculada ao lote não foi encontrada. Faça uma nova análise ou saia da conta para corrigir sem vínculo.';
+    case 429:
+      return error.retryAfterSeconds !== null && error.retryAfterSeconds > 0
+        ? `Muitas solicitações de correção. Aguarde ${error.retryAfterSeconds} s e tente novamente.`
+        : 'Muitas solicitações de correção. Aguarde alguns instantes e tente novamente.';
+    default:
+      return error.message;
   }
 }

@@ -12,6 +12,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
 import { ErrorStateComponent } from '../../shared/components/error-state/error-state.component';
 import { IconComponent } from '../../shared/components/icon/icon.component';
 import { SkeletonComponent } from '../../shared/components/skeleton/skeleton.component';
+import { resolveScoreStatus } from '../../shared/utils/pt-br-messages';
 
 interface Metric {
   readonly label: string;
@@ -148,6 +149,13 @@ export class OverviewComponent {
   }
 
   protected scoreLabel(analysis: Analysis): string {
+    const status = resolveScoreStatus(
+      analysis.result?.score_status,
+      analysis.result?.validation_skipped,
+    );
+    if (status === 'skipped' || status === 'unavailable') {
+      return '—';
+    }
     const score = analysis.result?.score;
     return typeof score === 'number' && Number.isFinite(score) ? `${Math.round(score)}` : '—';
   }

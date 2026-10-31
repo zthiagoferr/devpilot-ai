@@ -200,7 +200,7 @@ Não coloque credenciais no código, no dashboard ou em arquivos públicos. Use 
 
 ### CORS e origens do frontend
 
-`FRONTEND_ORIGINS` é uma lista separada por vírgulas de **origens exatas** (esquema + host + porta), como `http://localhost:4200`. Não use `*`: o middleware só responde com `Access-Control-Allow-Origin` para as origens listadas e não habilita credenciais. A lista é controlada pelo ambiente de execução (por exemplo a variável configurada no Render), nunca pelo código do frontend.
+`FRONTEND_ORIGINS` é uma lista separada por vírgulas de **origens exatas** (esquema + host + porta), como `http://localhost:4200`. Não use `*`: o middleware só responde com `Access-Control-Allow-Origin` para as origens listadas e não habilita credenciais. A lista é controlada pelo ambiente de execução (por exemplo a variável configurada na Vercel), nunca pelo código do frontend.
 
 Para desenvolvimento local, suba a API já com a origem do `ng serve`:
 
@@ -396,7 +396,11 @@ Sempre revise uma migração gerada automaticamente antes de aplicá-la em outro
 
 ## CI
 
-O workflow de CI está em `.github/workflows/ci.yml` e é executado pelo GitHub Actions. A verificação deve ser mantida verde antes de integrar alterações. Ela instala as dependências do projeto e executa a suíte automatizada conforme a configuração do repositório.
+O workflow de CI está em `.github/workflows/ci.yml` e é executado pelo GitHub Actions em pushes para `main` e em pull requests. A verificação deve ser mantida verde antes de integrar alterações. Ela instala as dependências do projeto e executa a suíte automatizada conforme a configuração do repositório.
+
+O workflow de publicação do frontend (`.github/workflows/pages.yml`) só publica após o job `verify` passar: pytest, testes do Angular, verificação de tipos (`tsc --noEmit`), build de produção e checagem do artefato. Somente pushes para `main` publicam; um `workflow_dispatch` de outra ref apenas valida. A publicação exige a repository variable `DEVPILOT_API_URL`.
+
+O backend FastAPI é publicado pela integração Git da Vercel, e não pelo GitHub Actions. Um CI vermelho não bloqueia a Vercel: a proteção é externa (production branch, deployment protection) e as migrações são aplicadas manualmente, nunca no build/start da Vercel.
 
 Alterações em código, migrações, ferramentas, MCP, Docker ou documentação devem manter a configuração de CI e os comandos reproduzíveis localmente.
 

@@ -154,6 +154,76 @@ describe('RepositoryStore', () => {
     expect(store.protheus()?.path).toBe('apps.json');
   });
 
+  it('offers only eligible files and enforces the three-file batch limit', async () => {
+    loadRepository.mockResolvedValue({
+      files: [
+        ...FILES,
+        {
+          path: 'src/fourth.py',
+          size: 8,
+          source_code: 'x = 1\n',
+          language: 'python',
+        },
+        {
+          path: '.env',
+          size: 20,
+          source_code: 'TOKEN=secret',
+          language: 'unknown',
+        },
+        {
+          path: 'docs/README.md',
+          size: 10,
+          source_code: '# docs',
+          language: 'unknown',
+        },
+      ],
+      truncated: false,
+    });
+    await store.load('owner/mixed');
+
+    expect(store.correctionCandidates().map((file) => file.path)).toEqual([
+      'src/sample.py',
+      'tests/test_sample.py',
+      'src/financeiro.prg',
+      'src/fourth.py',
+    ]);
+    expect(store.hiddenCorrectionFileCount()).toBe(2);
+
+    expect(store.toggleCorrectionFile('.env')).toBe('unavailable');
+    expect(store.toggleCorrectionFile('src/sample.py')).toBe('added');
+    expect(store.toggleCorrectionFile('tests/test_sample.py')).toBe('added');
+    expect(store.toggleCorrectionFile('src/financeiro.prg')).toBe('added');
+    expect(store.correctionSelectionCount()).toBe(3);
+    expect(store.correctionSelectionLimitReached()).toBe(true);
+    expect(store.toggleCorrectionFile('src/fourth.py')).toBe('limit');
+    expect(store.correctionSelectionCount()).toBe(3);
+
+    expect(store.toggleCorrectionFile('src/sample.py')).toBe('removed');
+    expect(store.correctionSelectionCount()).toBe(2);
+    expect(store.toggleCorrectionFile('src/fourth.py')).toBe('added');
+    expect(store.correctionSelection().map((file) => file.path)).toEqual([
+      'tests/test_sample.py',
+      'src/financeiro.prg',
+      'src/fourth.py',
+    ]);
+  });
+
+  it('records the analyzed issue count and clears it with a new load', async () => {
+    loadRepository.mockResolvedValue({ files: FILES, truncated: false });
+    await store.load('owner/mixed');
+
+    expect(store.issueCountFor('src/sample.py')).toBeNull();
+    store.recordIssueCount('src/sample.py', 2);
+    expect(store.issueCountFor('src/sample.py')).toBe(2);
+
+    store.toggleCorrectionFile('src/sample.py');
+    expect(store.correctionSelectionCount()).toBe(1);
+
+    await store.load('owner/mixed');
+    expect(store.issueCountFor('src/sample.py')).toBeNull();
+    expect(store.correctionSelectionCount()).toBe(0);
+  });
+
   it('reports an empty repository with the API message and no selectable files', async () => {
     loadRepository.mockResolvedValue({
       files: [],

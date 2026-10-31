@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     firebase_service_account_json: _ComparableSecretStr | None = None
     log_level: str = "INFO"
     frontend_origins: str = ""
-    llm_timeout_seconds: float = 30.0
+    # Correction providers routinely take 45-100 s on medium files. Render free
+    # web services are documented to spin down after idle time; the official
+    # docs reviewed did not state a request timeout, so 90 s is a conservative
+    # bound below the commonly reported ~100 s proxy limit.
+    llm_timeout_seconds: float = 90.0
     max_source_code_bytes: int = 1_000_000
     github_max_files: int = 1_000
     github_max_file_bytes: int = 1_000_000
@@ -73,6 +77,19 @@ class Settings(BaseSettings):
     # The model's explanation is short prose; a larger payload is treated as an
     # unusable response instead of being persisted.
     correction_max_explanation_bytes: int = 20_000
+    # Upper bound for the "full" correction mode: one request may address at
+    # most this many issues. Larger batches are rejected with 422 instead of
+    # producing an unbounded prompt.
+    correction_full_max_issues: int = 10
+    # Batch corrections (Fase D2a). One request corrects at most
+    # ``correction_batch_max_files`` files, with a total payload bound. The
+    # total defaults to three times the per-file limit (3 x 200 kB) and is
+    # derived when not set explicitly, so raising the per-file limit keeps the
+    # batch bound proportional. The whole request shares one wall-clock budget
+    # that must stay below the proxy timeout documented above (~100 s).
+    correction_batch_max_files: int = 3
+    correction_batch_max_total_bytes: int | None = None
+    correction_batch_budget_seconds: float = 90.0
     correction_rate_limit_requests: int = 20
     correction_rate_limit_window_seconds: float = 60.0
     # The deterministic fake provider must be opted into explicitly before the
@@ -89,6 +106,15 @@ class Settings(BaseSettings):
         extra="ignore",
         hide_input_in_errors=True,
     )
+
+    @model_validator(mode="after")
+    def _derive_batch_total_bytes(self) -> "Settings":
+        """Derive the batch total from the per-file bound when unset."""
+        if self.correction_batch_max_total_bytes is None:
+            self.correction_batch_max_total_bytes = (
+                3 * self.correction_max_source_bytes
+            )
+        return self
 
     @property
     def is_production(self) -> bool:

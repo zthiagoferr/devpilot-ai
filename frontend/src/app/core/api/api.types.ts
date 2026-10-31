@@ -24,6 +24,16 @@ export type IssueOrigin = 'validator' | 'ai' | 'mixed';
 /** Kind of deterministic or AI analysis that produced an issue. */
 export type AnalysisKind = 'heuristic_validation' | 'ia_analysis' | 'official_validation';
 
+/** Confidence of a validation score, distinct from detection confidence. */
+export type ScoreStatus = 'evaluated' | 'partial' | 'skipped' | 'unavailable';
+
+/** What a validator checked and which limits apply to its findings. */
+export interface AnalysisCoverage {
+  readonly score_status?: ScoreStatus | null;
+  readonly checks?: readonly string[] | null;
+  readonly limitations?: readonly string[] | null;
+}
+
 export interface AnalysisIssue {
   readonly severity?: string | null;
   readonly message: string;
@@ -51,6 +61,10 @@ export interface AnalysisResult {
   readonly corrections_available?: boolean | null;
   /** No structural validator ran; ``score`` is a neutral 100, not an evaluation. */
   readonly validation_skipped?: boolean | null;
+  /** Confidence of the score itself (evaluated/partial/skipped/unavailable). */
+  readonly score_status?: ScoreStatus | null;
+  /** Coverage keyed by language; absent on legacy or Python-only payloads. */
+  readonly coverage?: Readonly<Record<string, AnalysisCoverage>> | null;
 }
 
 export interface Analysis {
@@ -172,15 +186,35 @@ export interface CorrectionIssueRef {
   readonly column?: number | null;
   readonly rule_id?: string | null;
   readonly code?: string | null;
+  readonly cause?: string | null;
 }
+
+/** Repository path metadata used by the post-validation reference checks. */
+export interface CorrectionRepositoryContext {
+  readonly paths?: readonly string[] | null;
+  readonly tree_complete?: boolean;
+  readonly truncated?: boolean;
+}
+
+/** One issue (default) or every listed issue of the file in one AI pass. */
+export type CorrectionMode = 'single' | 'full';
 
 export interface CorrectionCreate {
   readonly analysis_id?: string | null;
   readonly file?: string | null;
   readonly language?: string | null;
   readonly source_code: string;
-  readonly issue: CorrectionIssueRef;
+  /**
+   * Correction mode. Omitted keeps the historical single-issue behaviour, so
+   * existing clients do not need to change.
+   */
+  readonly mode?: CorrectionMode;
+  /** Required in single mode; optional in full mode. */
+  readonly issue?: CorrectionIssueRef | null;
+  /** Targets for full mode; omitted means "derive from the baseline". */
+  readonly issues?: readonly CorrectionIssueRef[];
   readonly protheus_version?: string | null;
+  readonly repository_context?: CorrectionRepositoryContext | null;
 }
 
 export type CorrectionStatus = 'pending' | 'approved' | 'rejected';
@@ -190,8 +224,17 @@ export type CorrectionExportFormat = 'corrected' | 'diff' | 'json';
 export interface PostValidation {
   readonly status: PostValidationStatus;
   readonly target_resolved: boolean;
+  /** Every finding after the correction (historical contract). */
   readonly issues: readonly AnalysisIssue[];
   readonly summary: string;
+  /** Original findings the correction resolved (additive, optional on legacy payloads). */
+  readonly issues_resolved?: readonly AnalysisIssue[] | null;
+  /** Original findings that persist after the correction. */
+  readonly issues_remaining?: readonly AnalysisIssue[] | null;
+  /** New relevant findings introduced by the correction (critical/high/medium). */
+  readonly issues_new?: readonly AnalysisIssue[] | null;
+  /** New low/info findings: visible, but they do not fail the status. */
+  readonly issues_warnings?: readonly AnalysisIssue[] | null;
 }
 
 export interface Correction {
@@ -215,6 +258,62 @@ export interface Correction {
 
 export interface CorrectionDecision {
   readonly status: 'approved' | 'rejected';
+}
+
+/** One file of a batch correction request. */
+export interface CorrectionBatchFile {
+  readonly path: string;
+  readonly source_code: string;
+  /** Targets of the full correction; omitted asks the backend to derive them. */
+  readonly issues?: readonly CorrectionIssueRef[];
+}
+
+/**
+ * Request body for `POST /corrections/batch`.
+ *
+ * One batch-level language (when set) overrides detection for every file, and
+ * the repository context is shared by the reference checks of all files.
+ */
+export interface CorrectionBatchCreate {
+  readonly analysis_id?: string | null;
+  readonly files: readonly CorrectionBatchFile[];
+  readonly language?: string | null;
+  readonly protheus_version?: string | null;
+  readonly repository_context?: CorrectionRepositoryContext | null;
+}
+
+export type CorrectionBatchItemStatus = 'completed' | 'failed' | 'skipped';
+
+/**
+ * Outcome of one file inside a batch.
+ *
+ * A non-completed item never carries source code: only a bounded reason and a
+ * sanitized backend detail. A completed item carries the persisted correction,
+ * still pending, so approval stays per file.
+ */
+export interface CorrectionBatchItem {
+  readonly path: string;
+  readonly status: CorrectionBatchItemStatus;
+  readonly correction?: Correction | null;
+  readonly issues_targeted: number;
+  readonly error_code?: string | null;
+  readonly error_status?: number | null;
+  readonly error_detail?: string | null;
+  readonly reason?: string | null;
+}
+
+/** Aggregated result of a batch correction. */
+export interface CorrectionBatchResponse {
+  readonly results: readonly CorrectionBatchItem[];
+  readonly files_total: number;
+  readonly files_completed: number;
+  readonly files_failed: number;
+  readonly files_skipped: number;
+  readonly issues_resolved_total: number;
+  readonly issues_remaining_total: number;
+  readonly issues_new_total: number;
+  readonly partial: boolean;
+  readonly budget_exceeded: boolean;
 }
 
 /** Raw download returned by `GET /corrections/{id}/export`. */

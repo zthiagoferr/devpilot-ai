@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 permissions:
@@ -10,6 +12,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -24,13 +27,14 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Compile Python files
-        run: python -m compileall -q app tests
+        run: python -m compileall -q app tests alembic
 
       - name: Run tests
         run: python -m pytest -p no:cacheprovider
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -49,6 +53,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Type check application
+        run: npx tsc --noEmit -p tsconfig.app.json
+
+      - name: Type check tests
+        run: npx tsc --noEmit -p tsconfig.spec.json
 
       - name: Build production bundle
         run: npx ng build --configuration production

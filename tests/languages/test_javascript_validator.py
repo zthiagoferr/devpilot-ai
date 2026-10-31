@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.languages.base import ValidationContext
 from app.languages.validators.javascript import JavascriptValidator
+from tests.fixtures import manual_samples
 
 VALID_JS = """const items = [1, 2, 3];
 const label = `items: ${items.length}`;
@@ -166,3 +167,204 @@ def test_crlf_and_bom_do_not_create_false_positives() -> None:
     result = validate(source)
 
     assert result.issues == ()
+
+
+def test_assignment_in_condition_is_high() -> None:
+    result = validate(manual_samples.MANUAL_JS_ASSIGNMENT_IN_CONDITION)
+    assignments = [
+        issue for issue in result.issues if issue.cause == "assignment_in_condition"
+    ]
+
+    assert len(assignments) == 1
+    assert assignments[0].severity == "high"
+    assert assignments[0].line == 2
+    assert "'x'" in assignments[0].message
+
+
+def test_comparison_operators_in_condition_are_not_assignments() -> None:
+    source = (
+        "let x = 0;\n"
+        "if (x === 1) { x += 1; }\n"
+        "if (x >= 2) { x -= 1; }\n"
+        "while (x != 3) { x = x + 1; }\n"
+    )
+    result = validate(source)
+    assert "assignment_in_condition" not in causes(result)
+
+
+def test_loop_without_progress_is_medium() -> None:
+    result = validate(manual_samples.MANUAL_JS_LOOP_WITHOUT_PROGRESS)
+    loops = [
+        issue for issue in result.issues if issue.cause == "loop_without_progress"
+    ]
+
+    assert len(loops) == 1
+    assert loops[0].severity == "medium"
+    assert loops[0].line == 1
+    assert "'i'" in loops[0].message
+
+
+def test_progressing_loops_are_silent() -> None:
+    source = (
+        "for (let i = 0; i < 10; i++) { console.log(i); }\n"
+        "for (let i = 10; i > 0; i--) { console.log(i); }\n"
+        "for (let i = 0; i <= 10; i += 2) { console.log(i); }\n"
+        "for (let i = 0, limit = 10; limit > i; i++) { console.log(i); }\n"
+    )
+    result = validate(source)
+    assert "loop_without_progress" not in causes(result)
+
+
+def test_loop_with_counter_on_the_right_side_is_checked() -> None:
+    source = (
+        "let limit = 0;\n"
+        "for (let i = 10; limit > i; i--) { console.log(i); }\n"
+    )
+    result = validate(source)
+    loops = [
+        issue for issue in result.issues if issue.cause == "loop_without_progress"
+    ]
+
+    assert len(loops) == 1
+    assert loops[0].severity == "medium"
+    assert "'i'" in loops[0].message
+
+
+def test_while_true_without_exit_is_medium() -> None:
+    source = "let value = 1;\nwhile (true) { value = value + 1; }\n"
+    result = validate(source)
+    loops = [
+        issue for issue in result.issues if issue.cause == "loop_without_progress"
+    ]
+
+    assert len(loops) == 1
+    assert loops[0].severity == "medium"
+    assert loops[0].line == 2
+
+
+def test_while_true_with_break_or_return_is_silent() -> None:
+    source = (
+        "let value = 1;\n"
+        "while (true) {\n"
+        "  if (value > 10) { break; }\n"
+        "  value = value + 1;\n"
+        "}\n"
+        "while (true) { return 1; }\n"
+    )
+    result = validate(source)
+    assert "loop_without_progress" not in causes(result)
+
+
+def test_loose_equality_between_literals_is_low() -> None:
+    result = validate(manual_samples.MANUAL_JS_LOOSE_EQUALITY)
+    loose = [
+        issue for issue in result.issues if issue.cause == "suspicious_loose_equality"
+    ]
+
+    assert len(loose) == 1
+    assert loose[0].severity == "low"
+    assert loose[0].line == 1
+
+
+def test_loose_equality_between_variables_is_silent() -> None:
+    source = (
+        "const left = 1;\n"
+        "const right = '1';\n"
+        "if (left == right) { console.log(left); }\n"
+        "if ('a' == 'a') { console.log(left); }\n"
+        "if (1 === 1) { console.log(left); }\n"
+    )
+    result = validate(source)
+    assert "suspicious_loose_equality" not in causes(result)
+
+
+def test_nan_comparison_is_medium() -> None:
+    result = validate(manual_samples.MANUAL_JS_NAN_COMPARISON)
+    comparisons = [issue for issue in result.issues if issue.cause == "nan_comparison"]
+
+    assert len(comparisons) == 1
+    assert comparisons[0].severity == "medium"
+    assert comparisons[0].line == 2
+
+
+def test_undeclared_reference_is_medium() -> None:
+    source = "function render() {\n  return missingValue + 1;\n}\nrender();\n"
+    result = validate(source)
+    references = [
+        issue for issue in result.issues if issue.cause == "undeclared_reference"
+    ]
+
+    assert len(references) == 1
+    assert references[0].severity == "medium"
+    assert references[0].line == 2
+    assert "missingValue" in references[0].message
+
+
+def test_undeclared_reference_ignores_declarations_later_in_the_file() -> None:
+    source = (
+        "function render() {\n"
+        "  return laterValue;\n"
+        "}\n"
+        "const laterValue = 1;\n"
+        "render();\n"
+    )
+    result = validate(source)
+    assert "undeclared_reference" not in causes(result)
+
+
+def test_undeclared_reference_ignores_globals_params_and_members() -> None:
+    source = (
+        "document.addEventListener('DOMContentLoaded', () => {\n"
+        "  const items = [1, 2];\n"
+        "  items.map((item) => item * 2).forEach((value) => console.log(value));\n"
+        "  console.log(window.innerWidth, Math.max(1, 2), JSON.stringify(items));\n"
+        "});\n"
+        "class Store {\n"
+        "  constructor(seed) { this.seed = seed; }\n"
+        "  load() { return this.seed; }\n"
+        "}\n"
+        "new Store(1).load();\n"
+    )
+    result = validate(source)
+    assert "undeclared_reference" not in causes(result)
+
+
+def test_undeclared_reference_ignores_destructuring() -> None:
+    source = (
+        "const { a, b } = require('./module');\n"
+        "console.log(a, b);\n"
+    )
+    result = validate(source)
+    assert "undeclared_reference" not in causes(result)
+
+
+def test_undeclared_reference_ignores_private_fields_and_reexports() -> None:
+    source = (
+        "class Counter {\n"
+        "  #count = 0;\n"
+        "  increment() { this.#count += 1; return this.#count; }\n"
+        "}\n"
+        "new Counter().increment();\n"
+        'export { format } from "./format.js";\n'
+        'export { parse as read } from "./parse.js";\n'
+    )
+    result = validate(source)
+    assert "undeclared_reference" not in causes(result)
+
+
+def test_undeclared_reference_still_flags_default_exported_unknown_name() -> None:
+    result = validate("export default missing;\n")
+    references = [
+        issue for issue in result.issues if issue.cause == "undeclared_reference"
+    ]
+
+    assert len(references) == 1
+    assert "missing" in references[0].message
+
+
+def test_coverage_metadata_declares_semantic_checks() -> None:
+    coverage = validate("const value = 1;\n").metadata["coverage"]
+
+    for check in ("conditions", "loops", "comparisons", "references"):
+        assert check in coverage["checks"]
+    assert coverage["limitations"]

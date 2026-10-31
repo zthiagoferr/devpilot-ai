@@ -6,12 +6,17 @@ import json
 
 import pytest
 
-from app.schemas.correction import CorrectionIssueRef
+from app.schemas.correction import (
+    CorrectionIssueRef,
+    CorrectionRepositoryContext,
+)
 from app.services.correction_errors import CorrectionInvalidResponseError
 from app.services.correction_prompt import (
+    FULL_SYSTEM_PROMPT,
     SOURCE_END,
     SOURCE_START,
     SYSTEM_PROMPT,
+    build_full_prompt,
     build_prompt,
     parse_response,
 )
@@ -149,3 +154,71 @@ def test_parse_response_rejects_oversized_corrected_code() -> None:
 
     with pytest.raises(CorrectionInvalidResponseError):
         parse_response(content, max_bytes=100)
+
+
+# ---------------------------------------------------- Fase D: modo full (D1)
+def test_full_system_prompt_keeps_the_single_contract_and_adds_batch_rules() -> None:
+    lowered = FULL_SYSTEM_PROMPT.lower()
+
+    assert "json" in lowered
+    assert "corrected_code" in lowered
+    assert "explanation" in lowered
+    assert "complete" in lowered
+    assert "compiles" in lowered
+    assert "never invent" in lowered
+    assert "all of the listed issues" in lowered
+    assert "unrelated" in lowered
+
+
+def test_build_full_prompt_orders_by_severity_then_line_and_indexes_ids() -> None:
+    issues = [
+        CorrectionIssueRef(message="low-late", severity="low", line=20),
+        CorrectionIssueRef(message="medium-mid", severity="medium", line=10),
+        CorrectionIssueRef(message="critical-first", severity="critical", line=2),
+        CorrectionIssueRef(message="high-second", severity="error", line=1),
+        CorrectionIssueRef(message="no-line", severity="info"),
+    ]
+
+    prompt = build_full_prompt(
+        source_code="<html></html>\n",
+        language="html",
+        file="index.html",
+        issues=issues,
+        repository_context=CorrectionRepositoryContext(
+            paths=["index.html"],
+            tree_complete=True,
+        ),
+        protheus_version=None,
+    )
+
+    assert prompt.count(SOURCE_START) == 1
+    assert prompt.count(SOURCE_END) == 1
+    assert "language: html" in prompt
+    assert "file: index.html" in prompt
+    assert "repository_context: 1 known path(s)" in prompt
+    assert '"id": 0' in prompt
+    assert '"id": 4' in prompt
+
+    order = [
+        prompt.index("critical-first"),
+        prompt.index("high-second"),
+        prompt.index("medium-mid"),
+        prompt.index("low-late"),
+        prompt.index("no-line"),
+    ]
+    assert order == sorted(order)
+
+
+def test_build_full_prompt_marks_missing_optional_values() -> None:
+    prompt = build_full_prompt(
+        source_code="x = 1\n",
+        language=None,
+        file=None,
+        issues=[CorrectionIssueRef(message="unused")],
+        protheus_version=None,
+    )
+
+    assert "language: unknown" in prompt
+    assert "file: not provided" in prompt
+    assert "protheus_version: not provided" in prompt
+    assert "repository_context: not provided" in prompt

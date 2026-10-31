@@ -352,4 +352,62 @@ describe('AnalysisNewComponent', () => {
     expect(element.textContent).not.toContain('Outro problema no repositório');
     expect(createAnalysis).not.toHaveBeenCalled();
   });
+
+  it('shows partial coverage and the caveat for a low-confidence detection', async () => {
+    createAnalysis.mockResolvedValue({
+      ...ADVPL_ANALYSIS,
+      result: {
+        ...ADVPL_ANALYSIS.result,
+        score: 90,
+        score_status: 'partial',
+        coverage: {
+          advpl: {
+            score_status: 'partial',
+            checks: ['structure', 'preprocessor'],
+            limitations: ['No runtime or semantic analysis'],
+          },
+        },
+      },
+    });
+    const fixture = TestBed.createComponent(AnalysisNewComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    type(inputByLabel(element, 'Nome do projeto'), 'Parcial');
+    type(textareaByLabel(element, 'Código-fonte'), 'If .T.\n');
+    element
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await settle(fixture);
+
+    expect(element.textContent).toContain('Análise parcial — confirme a linguagem manualmente.');
+    expect(element.textContent).toContain('Cobertura da análise');
+    expect(element.textContent).toContain('Pré-processador');
+    expect(element.textContent).toContain('Sem análise de execução ou semântica');
+  });
+
+  it('marks the score as unavailable when the validator failed', async () => {
+    createAnalysis.mockResolvedValue({
+      ...ADVPL_ANALYSIS,
+      result: {
+        ...ADVPL_ANALYSIS.result,
+        score: 90,
+        score_status: 'unavailable',
+        summary: 'Structural validation could not be completed.',
+      },
+    });
+    const fixture = TestBed.createComponent(AnalysisNewComponent);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    type(inputByLabel(element, 'Nome do projeto'), 'Falha');
+    type(textareaByLabel(element, 'Código-fonte'), 'If .T.\n');
+    element
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await settle(fixture);
+
+    expect(element.textContent).toContain('Validação indisponível');
+    expect(element.textContent).not.toContain('90/100');
+  });
 });

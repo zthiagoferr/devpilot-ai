@@ -164,6 +164,15 @@ class CodeAnalysisResult(BaseModel):
     language_source: str = "extension"
     confidence: float = 1.0
     corrections_available: bool = True
+    # Additive: True when detection selected no validator, so ``score`` is a
+    # neutral 100 that must not be presented as an evaluation.
+    validation_skipped: bool = False
+    # Additive: confidence of the score itself (evaluated/partial/skipped/
+    # unavailable), distinct from detection confidence. Legacy payloads default
+    # to ``evaluated`` so the historical Python flow is unchanged.
+    score_status: str = "evaluated"
+    # Additive: deterministic checks and limitations declared by the validator.
+    coverage: dict[str, Any] | None = None
 
 
 class OrchestratorStatus(BaseModel):

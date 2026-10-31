@@ -138,4 +138,77 @@ describe('AnalysisDetailComponent', () => {
     const text = element.textContent ?? '';
     expect(text.indexOf('Bloco IF sem fechamento')).toBeLessThan(text.indexOf('Variável global'));
   });
+
+  it('shows the local structural caveat when an evaluation finds no issues', async () => {
+    getAnalysis.mockResolvedValue({
+      ...ANALYSIS,
+      result: {
+        score: 100,
+        summary: 'HTML structural checks found no issues.',
+        language: 'html',
+        confidence: 0.99,
+        score_status: 'evaluated',
+        coverage: {
+          html: {
+            score_status: 'evaluated',
+            checks: ['structure', 'accessibility'],
+            limitations: ['Structural and basic accessibility checks only; not an HTML validator'],
+          },
+        },
+        issues: [],
+      },
+    });
+    const fixture = TestBed.createComponent(AnalysisDetailComponent);
+    fixture.componentRef.setInput('id', 'analysis-1');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('não garante ausência de riscos');
+    expect(element.textContent).toContain('Cobertura da análise');
+    expect(element.textContent).toContain('O que foi verificado');
+    expect(element.textContent).toContain('Estrutura');
+    expect(element.textContent).toContain('O que não é coberto');
+    expect(element.textContent).toContain('não é um validador HTML');
+  });
+
+  it('explains a partial evaluation while keeping the score', async () => {
+    getAnalysis.mockResolvedValue({
+      ...ANALYSIS,
+      result: {
+        ...ANALYSIS.result,
+        score: 90,
+        score_status: 'partial',
+      },
+    });
+    const fixture = TestBed.createComponent(AnalysisDetailComponent);
+    fixture.componentRef.setInput('id', 'analysis-1');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('90');
+    expect(element.textContent).toContain('Análise parcial — confirme a linguagem manualmente.');
+  });
+
+  it('does not present the error score as an evaluation when the validator is unavailable', async () => {
+    getAnalysis.mockResolvedValue({
+      ...ANALYSIS,
+      result: {
+        ...ANALYSIS.result,
+        score: 90,
+        score_status: 'unavailable',
+        summary: 'Structural validation could not be completed.',
+      },
+    });
+    const fixture = TestBed.createComponent(AnalysisDetailComponent);
+    fixture.componentRef.setInput('id', 'analysis-1');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('Indisponível');
+    expect(element.textContent).toContain('Validação indisponível');
+    expect(element.textContent).not.toContain('90/100');
+  });
 });

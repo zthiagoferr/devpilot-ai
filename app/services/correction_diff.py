@@ -10,13 +10,12 @@ from __future__ import annotations
 import difflib
 import re
 
-#: Language -> extension used for the corrected-file download.
+from app.languages.spec import SPECS
+
+#: Language -> extension used for the corrected-file download, derived from
+#: :data:`app.languages.spec.SPECS` so the two maps cannot drift apart.
 LANGUAGE_EXTENSIONS: dict[str, str] = {
-    "python": "py",
-    "advpl": "prw",
-    "html": "html",
-    "css": "css",
-    "javascript": "js",
+    language: spec.download_suffix() for language, spec in SPECS.items()
 }
 
 DEFAULT_EXTENSION = "txt"

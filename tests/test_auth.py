@@ -362,6 +362,62 @@ def test_authenticated_submission_is_owned_by_the_token_subject(auth_client) -> 
     assert _owners(db_path) == ["user-1"]
 
 
+def test_unverified_email_is_allowed_and_remains_owner_scoped(auth_client) -> None:
+    """An unconfirmed e-mail never blocks analysis nor leaks another history.
+
+    ``email_verified`` is informational by design: the token still identifies a
+    real ``uid``, so creation is allowed and every read is scoped to that uid.
+    """
+    from app.main import app
+
+    client, db_path = auth_client
+    unverified_token = "unverified-token-user-3"
+    unverified_user = VerifiedUser(
+        uid="user-3",
+        email="user3@example.com",
+        email_verified=False,
+    )
+    previous = app.dependency_overrides[get_token_verifier]
+    # Another user's record exists (created under the default fake) but must stay
+    # invisible to the unverified token below.
+    other = client.post("/analyses", json=PAYLOAD, headers=bearer(TEST_TOKEN))
+    assert other.status_code == 201, other.text
+
+    app.dependency_overrides[get_token_verifier] = lambda: FakeTokenVerifier(
+        {unverified_token: unverified_user}
+    )
+    try:
+        created = client.post(
+            "/analyses",
+            json=PAYLOAD,
+            headers=bearer(unverified_token),
+        )
+
+        assert created.status_code == 201, created.text
+        assert "user_id" not in created.json()
+
+        listing = client.get("/analyses", headers=bearer(unverified_token))
+        assert listing.status_code == 200
+        assert [item["id"] for item in listing.json()] == [created.json()["id"]]
+
+        own_detail = client.get(
+            f"/analyses/{created.json()['id']}",
+            headers=bearer(unverified_token),
+        )
+        assert own_detail.status_code == 200
+
+        other_detail = client.get(
+            f"/analyses/{other.json()['id']}",
+            headers=bearer(unverified_token),
+        )
+        assert other_detail.status_code == 404
+        assert other_detail.json()["detail"] == "Analysis not found"
+    finally:
+        app.dependency_overrides[get_token_verifier] = previous
+
+    assert sorted(_owners(db_path)) == ["user-1", "user-3"]
+
+
 def test_history_and_detail_are_scoped_to_the_caller(auth_client) -> None:
     client, _ = auth_client
 

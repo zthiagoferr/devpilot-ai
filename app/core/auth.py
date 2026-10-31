@@ -39,7 +39,16 @@ _FIREBASE_APP_NAME = "devpilot-ai"
 
 @dataclass(frozen=True)
 class VerifiedUser:
-    """The identity extracted from a successfully verified bearer token."""
+    """The identity extracted from a successfully verified bearer token.
+
+    ``email_verified`` is informational only; the product deliberately does not
+    require a confirmed e-mail. Analysis is allowed for anonymous *and*
+    unverified users — the only rule is that reading saved analyses requires a
+    token, and even then an unverified account keeps full ownership of its own
+    records. Every endpoint that uses this identity must scope by ``uid`` (an
+    unverified token is still a verified *identity*, never a permission to read
+    someone else's history).
+    """
 
     uid: str
     email: str | None = None

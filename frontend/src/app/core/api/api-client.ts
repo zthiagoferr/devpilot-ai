@@ -12,6 +12,8 @@ import {
   Analysis,
   AnalysisLanguage,
   Correction,
+  CorrectionBatchCreate,
+  CorrectionBatchResponse,
   CorrectionCreate,
   CorrectionDecision,
   CorrectionExport,
@@ -83,6 +85,19 @@ export class ApiClient {
 
   createCorrection(payload: CorrectionCreate, signal?: AbortSignal): Promise<Correction> {
     return this.request<Correction>('POST', '/corrections', payload, signal);
+  }
+
+  /**
+   * Requests AI corrections for up to three files in one synchronous call.
+   *
+   * Each completed file is persisted individually by the backend, so approval
+   * stays per file through `decideCorrection`.
+   */
+  createCorrectionBatch(
+    payload: CorrectionBatchCreate,
+    signal?: AbortSignal,
+  ): Promise<CorrectionBatchResponse> {
+    return this.request<CorrectionBatchResponse>('POST', '/corrections/batch', payload, signal);
   }
 
   listCorrections(analysisId: string, signal?: AbortSignal): Promise<Correction[]> {

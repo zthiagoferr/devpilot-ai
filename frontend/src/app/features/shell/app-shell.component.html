@@ -1,55 +1,45 @@
 <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
-
-<div class="shell">
-  <div
-    class="scrim"
-    [class.is-visible]="drawerOpen()"
-    aria-hidden="true"
-    (click)="closeDrawer(true)"
-  ></div>
-
-  <aside class="sidebar" [class.is-open]="drawerOpen()" aria-label="Navegação principal">
-    <div class="sidebar__top">
-      <a class="brand" routerLink="/overview" aria-label="DevPilot AI — visão geral">
-        <span class="brand__mark" aria-hidden="true">
-          <app-icon name="sparkles" [size]="18" [strokeWidth]="2" />
-        </span>
-        <span class="brand__name">DevPilot <strong>AI</strong></span>
-      </a>
-
-      <button
-        #drawerCloseButton
-        type="button"
-        class="icon-button sidebar__close"
-        aria-label="Fechar navegação"
-        (click)="closeDrawer(true)"
-      >
-        <app-icon name="close" [size]="20" />
-      </button>
-    </div>
-
-    <nav id="primary-navigation" class="nav" aria-label="Navegação do espaço de trabalho">
-      @for (item of navItems; track item.key) {
-        <a
-          class="nav__link"
-          [routerLink]="item.path"
-          [class.is-active]="isActive(item)"
-          [attr.aria-current]="isActive(item) ? 'page' : null"
-        >
-          <app-icon [name]="item.icon" [size]="18" />
-          <span>{{ item.label }}</span>
+<div class="shell dp-top-shell">
+  <div class="content">
+    <header class="content__footer dp-top-dock">
+      <nav class="content__footer-actions" aria-label="Navegação principal">
+        <a class="content__footer-chip content__footer-chip--brand" routerLink="/overview">
+          <img class="content__footer-chip-mark" src="brand/mark-128.png" alt="" width="20" height="20" />
+          <span>DevPilot AI</span>
         </a>
-      }
-    </nav>
-
-    <div class="sidebar__footer">
+        <a class="content__footer-chip" routerLink="/overview" routerLinkActive="is-active" ariaCurrentWhenActive="page">
+          <app-icon name="grid" [size]="14" />
+          <span>Visão geral</span>
+        </a>
+        <a class="content__footer-chip" routerLink="/analysis/new" routerLinkActive="is-active" ariaCurrentWhenActive="page">
+          <app-icon name="plus" [size]="14" />
+          <span>Nova análise</span>
+        </a>
+        <a class="content__footer-chip" routerLink="/history" routerLinkActive="is-active" ariaCurrentWhenActive="page">
+          <app-icon name="history" [size]="14" />
+          <span>Histórico</span>
+        </a>
+        <a class="content__footer-chip content__footer-chip--docs" routerLink="/documentation" routerLinkActive="is-active" ariaCurrentWhenActive="page" aria-label="Abrir documentação completa do projeto">
+          <app-icon name="code" [size]="14" />
+          <span>Documentação</span>
+        </a>
+        <a class="content__footer-chip" routerLink="/how-it-works" routerLinkActive="is-active" ariaCurrentWhenActive="page">
+          <app-icon name="info" [size]="14" />
+          <span>Como funciona?</span>
+        </a>
+      </nav>
+      <div class="dp-top-account">
       <section class="account" aria-label="Conta">
         <div class="account__identity">
           <span class="account__avatar" aria-hidden="true">{{ account.initials() }}</span>
           <div class="account__meta">
-            @if (account.isAuthenticated()) {
+            @if (account.hasAccount()) {
               <p class="account__name">{{ account.displayName() }}</p>
               <p class="account__detail">{{ account.email() }}</p>
+            } @else if (account.isAnonymous()) {
+              <p class="account__name">Visitante</p>
+              <p class="account__detail">Sessão anônima</p>
+              <span class="account__badge">Anônimo</span>
             } @else {
               <p class="account__name">Visitante</p>
               <p class="account__detail">Sem sessão ativa</p>
@@ -57,12 +47,27 @@
           </div>
         </div>
 
-        @if (account.isAuthenticated()) {
-          @if (!account.emailVerified()) {
+        @if (account.hasAccount()) {
+          @if (needsVerification()) {
             <button type="button" class="account__verify" (click)="prompts.open()">
               Confirme seu e-mail
             </button>
           }
+          <app-button
+            variant="ghost"
+            size="sm"
+            [fullWidth]="true"
+            [loading]="signingOut()"
+            (click)="signOut()"
+          >
+            <app-icon name="xCircle" [size]="14" />
+            Sair
+          </app-button>
+        } @else if (account.isAnonymous()) {
+          <app-button variant="secondary" size="sm" [fullWidth]="true" (click)="openRegister()">
+            <app-icon name="plus" [size]="14" />
+            Criar conta
+          </app-button>
           <app-button
             variant="ghost"
             size="sm"
@@ -88,44 +93,12 @@
           <p class="account__error" role="alert">{{ accountError() }}</p>
         }
       </section>
-
-      <app-service-status />
-    </div>
-  </aside>
-
-  <div class="content" [attr.inert]="drawerOpen() ? '' : null">
-    <header class="mobile-bar">
-      <button
-        #menuButton
-        type="button"
-        class="icon-button"
-        aria-label="Abrir navegação"
-        aria-controls="primary-navigation"
-        [attr.aria-expanded]="drawerOpen()"
-        (click)="openDrawer()"
-      >
-        <app-icon name="menu" [size]="22" />
-      </button>
-
-      <a class="brand brand--compact" routerLink="/overview" aria-label="DevPilot AI — visão geral">
-        <span class="brand__mark" aria-hidden="true">
-          <app-icon name="sparkles" [size]="16" [strokeWidth]="2" />
-        </span>
-        <span class="brand__name">DevPilot <strong>AI</strong></span>
-      </a>
-
-      <span class="mobile-bar__spacer" aria-hidden="true"></span>
+      </div>
     </header>
-
     <main id="main-content" class="content__main" tabindex="-1">
       <router-outlet />
     </main>
-
-    <footer class="content__footer">
-      <p>DevPilot AI · análise multiagente de código</p>
-      <p class="content__footer-meta">Feito para revisar com contexto</p>
-    </footer>
+    <div class="dp-service-footer"><app-service-status /></div>
   </div>
 </div>
-
 <app-auth-dialog />

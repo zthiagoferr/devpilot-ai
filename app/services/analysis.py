@@ -8,17 +8,19 @@ tasks are deliberately not exposed here.
 
 from __future__ import annotations
 
-import posixpath
-import re
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 from app.agents.orchestrator import OrchestratorAgent
 from app.core.config import get_settings
+from app.core.repository_paths import (
+    InvalidRepositoryPathError,
+    normalize_repository_path,
+)
 from app.db.models import Analysis
 from app.db.repositories import AnalysisRepository
-from app.languages.base import ValidationContext
+from app.languages.base import ValidationContext, normalize_score_status
 from app.languages.detector import detect_language
 from app.schemas.analysis import AnalysisCreate, RepositoryContext
 from app.services.relations import RepositorySource, build_repository_relations
@@ -34,8 +36,6 @@ _TASK_ALIASES: dict[str, str] = {
     "tests": "tests",
     "docs": "docs",
 }
-
-_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
 class InvalidAnalysisTaskError(ValueError):
@@ -232,29 +232,10 @@ class AnalysisService:
     @staticmethod
     def _normalize_repository_path(path: Any) -> str:
         """Return a safe repository-relative POSIX path or raise."""
-        if not isinstance(path, str):
-            raise InvalidRepositoryContextError(
-                "Repository context paths must be strings."
-            )
-        value = path.strip().replace("\\", "/")
-        if not value or "\x00" in value:
-            raise InvalidRepositoryContextError(
-                "Repository context paths must be non-empty and free of NUL bytes."
-            )
-        if value.startswith("/") or _WINDOWS_DRIVE_RE.match(value):
-            raise InvalidRepositoryContextError(
-                f"Repository context path must be relative: {path!r}."
-            )
-        normalized = posixpath.normpath(value)
-        if (
-            normalized in ("", ".")
-            or normalized == ".."
-            or normalized.startswith("../")
-        ):
-            raise InvalidRepositoryContextError(
-                f"Repository context path escapes the repository root: {path!r}."
-            )
-        return normalized
+        try:
+            return normalize_repository_path(path)
+        except InvalidRepositoryPathError as exc:
+            raise InvalidRepositoryContextError(exc.reason) from None
 
     def _prepare_repository_context(
         self,
@@ -374,10 +355,124 @@ class AnalysisService:
             "summary": "" if summary is None else str(summary),
             "issues": issues,
             "report": normalized_report,
+            # Additive: an unknown language keeps a neutral score of 100, which
+            # must never be presented as a real evaluation.
+            "validation_skipped": AnalysisService._validation_skipped(
+                payload,
+                report,
+            ),
         }
+        result["score_status"] = AnalysisService._score_status(
+            payload,
+            report,
+            result["validation_skipped"],
+        )
+        coverage = AnalysisService._coverage(
+            payload,
+            report,
+            result["score_status"],
+        )
+        if coverage is not None:
+            result["coverage"] = coverage
         if insights is not None:
             result["insights"] = insights
         return result
+
+    @staticmethod
+    def _score_status(
+        payload: dict[str, Any],
+        report: Any,
+        validation_skipped: bool,
+    ) -> str:
+        """Return the score-confidence status for the normalized result.
+
+        Older payloads (and the Python ``CodeAgent``, which does not use the
+        structural validator yet) omit the field; they default to
+        ``evaluated`` to preserve the historical contract.
+        """
+        direct = payload.get("score_status")
+        if isinstance(direct, str):
+            return normalize_score_status(direct)
+        if isinstance(report, dict):
+            report_status = report.get("score_status")
+            if isinstance(report_status, str):
+                return normalize_score_status(report_status)
+            coverage = report.get("coverage")
+            if isinstance(coverage, dict):
+                statuses = [
+                    normalize_score_status(entry.get("score_status"))
+                    for entry in coverage.values()
+                    if isinstance(entry, dict)
+                ]
+                for candidate in ("unavailable", "skipped", "partial"):
+                    if candidate in statuses:
+                        return candidate
+                if statuses:
+                    return "evaluated"
+        if validation_skipped:
+            return "skipped"
+        return "evaluated"
+
+    @staticmethod
+    def _coverage(
+        payload: dict[str, Any],
+        report: Any,
+        score_status: str,
+    ) -> dict[str, Any] | None:
+        """Return coverage keyed by language, or ``None`` when unavailable.
+
+        Single-language agents expose ``{checks, limitations}`` while the
+        language report exposes ``{language: {score_status, checks,
+        limitations}}``; both are normalized to the keyed form (with the score
+        status attached) to keep the frontend contract simple.
+        """
+        if isinstance(report, dict):
+            report_coverage = report.get("coverage")
+            if isinstance(report_coverage, dict):
+                keyed: dict[str, Any] = {}
+                for language, entry in report_coverage.items():
+                    if not isinstance(entry, dict):
+                        continue
+                    normalized = dict(entry)
+                    normalized.setdefault("score_status", score_status)
+                    keyed[str(language)] = normalized
+                if keyed:
+                    return keyed
+        single = payload.get("coverage")
+        language = payload.get("language")
+        if (
+            isinstance(single, dict)
+            and isinstance(language, str)
+            and language.strip() != ""
+        ):
+            return {
+                language: {"score_status": score_status, **dict(single)},
+            }
+        return None
+
+    @staticmethod
+    def _validation_skipped(payload: dict[str, Any], report: Any) -> bool:
+        """Return whether no structural validator ran for the source.
+
+        A single-language task carries the flag in the payload; a full analysis
+        carries it inside each report analysis. Anything else defaults to
+        ``False`` so the historical Python flow is unchanged.
+        """
+        direct = payload.get("validation_skipped")
+        if isinstance(direct, bool):
+            return direct
+        if isinstance(report, dict):
+            report_flag = report.get("validation_skipped")
+            if isinstance(report_flag, bool):
+                return report_flag
+            analyses = report.get("analyses")
+            if isinstance(analyses, dict):
+                return any(
+                    isinstance(analysis, dict)
+                    and analysis.get("validation_skipped") is True
+                    for analysis in analyses.values()
+                )
+        return False
 
     @staticmethod
     def _as_score(value: Any) -> int:

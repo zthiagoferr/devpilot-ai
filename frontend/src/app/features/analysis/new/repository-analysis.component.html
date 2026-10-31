@@ -1,7 +1,7 @@
 <form
   class="repo-form"
   novalidate
-  [attr.aria-busy]="store.isLoading() || submitting() ? 'true' : null"
+  [attr.aria-busy]="store.isLoading() || submitting() || batchRequesting() ? 'true' : null"
   (submit)="submit($event)"
 >
   <div class="repo-form__grid">
@@ -177,6 +177,110 @@
         </div>
       </details>
     }
+
+    <section class="repo-form__batch" aria-labelledby="repository-batch-title">
+      <div class="repo-form__files-header">
+        <h3 id="repository-batch-title" class="repo-form__files-title">Corrigir arquivos com IA</h3>
+        <p class="text-caption text-muted">
+          {{ correctionCandidates().length }} elegíveis · máx. {{ maxCorrectionFiles }} por lote
+        </p>
+      </div>
+
+      @if (correctionCandidates().length === 0) {
+        <app-inline-status
+          tone="warning"
+          message="Nenhum arquivo carregado pode ser corrigido: apenas arquivos de código suportados, não sensíveis e dentro do limite de tamanho são elegíveis."
+        />
+      } @else {
+        <p class="text-caption text-muted">
+          Marque até {{ maxCorrectionFiles }} arquivos. Arquivos sensíveis (como
+          <span class="mono-metric">.env</span>) e arquivos acima do limite por arquivo não são
+          exibidos.
+          @if (store.hiddenCorrectionFileCount() > 0) {
+            {{ store.hiddenCorrectionFileCount() }}
+            {{ store.hiddenCorrectionFileCount() === 1 ? 'arquivo oculto' : 'arquivos ocultos' }}.
+          }
+        </p>
+
+        <ul class="repo-form__batch-list">
+          @for (file of correctionCandidates(); track file.path) {
+            <li>
+              <label class="batch-option">
+                <input
+                  type="checkbox"
+                  [checked]="store.isCorrectionSelected(file.path)"
+                  [disabled]="
+                    !store.isCorrectionSelected(file.path) &&
+                    store.correctionSelectionLimitReached()
+                  "
+                  (change)="toggleBatchFile(file.path)"
+                />
+                <span class="batch-option__body">
+                  <span class="batch-option__path mono-metric">{{ file.path }}</span>
+                  <span class="batch-option__meta">
+                    <app-badge tone="neutral">{{ fileLanguage(file) }}</app-badge>
+                    <span class="text-caption text-muted">{{ issueCountLabel(file) }}</span>
+                    @if (fileSize(file); as size) {
+                      <span class="text-caption text-muted">{{ size }}</span>
+                    }
+                  </span>
+                </span>
+              </label>
+            </li>
+          }
+        </ul>
+
+        @if (correctionSelectionCount() > 0) {
+          <div class="repo-form__batch-selected">
+            <p class="text-caption text-muted">
+              Selecionados ({{ correctionSelectionCount() }} de {{ maxCorrectionFiles }}):
+            </p>
+            <ul class="repo-form__batch-selected-list">
+              @for (file of store.correctionSelection(); track file.path) {
+                <li class="repo-form__batch-selected-item">
+                  <span class="mono-metric">{{ file.path }}</span>
+                  <app-button
+                    size="sm"
+                    variant="ghost"
+                    type="button"
+                    [disabled]="batchRequesting()"
+                    (click)="removeBatchFile(file.path)"
+                  >
+                    Remover
+                  </app-button>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        @if (batchSelectionNotice(); as notice) {
+          <app-inline-status tone="warning" [message]="notice" />
+        }
+
+        <div class="repo-form__actions">
+          <app-button
+            type="button"
+            [loading]="batchRequesting()"
+            [disabled]="correctionBatchDisabled()"
+            (click)="runCorrectionBatch()"
+          >
+            <app-icon name="sparkles" [size]="16" />
+            Corrigir arquivos selecionados ({{ correctionSelectionCount() }})
+          </app-button>
+          <p class="mono-metric text-caption text-muted">
+            {{ correctionSelectionBytesLabel() }}
+            @if (correctionSelectionCount() >= maxCorrectionFiles) {
+              · limite de {{ maxCorrectionFiles }} arquivos atingido
+            }
+          </p>
+        </div>
+      }
+
+      @if (batchStatus(); as currentStatus) {
+        <app-inline-status [tone]="currentStatus.tone" [message]="currentStatus.message" />
+      }
+    </section>
   }
 
   @if (submitStatus(); as currentStatus) {
@@ -201,4 +305,18 @@
       </p>
     }
   </div>
+
+  @if (batchResponse(); as batch) {
+    <app-correction-batch-panel
+      [batch]="batch"
+      [sources]="correctionSources()"
+      [language]="language() === 'auto' ? null : language()"
+      [analysisId]="batchAnalysisId()"
+      [protheusVersion]="language() === 'advpl' ? protheusVersion() : null"
+      [repositoryContext]="correctionRepositoryContext()"
+      [authenticated]="authenticated()"
+      (loginRequested)="loginRequested.emit()"
+      (decided)="decided.emit($event)"
+    />
+  }
 </form>

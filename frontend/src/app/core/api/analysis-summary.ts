@@ -4,11 +4,15 @@ import { Analysis } from './api.types';
 export function analysisSuccessMessage(analysis: Analysis): string {
   const score = analysis.result?.score;
   const validationSkipped = analysis.result?.validation_skipped === true;
+  const scoreStatus = analysis.result?.score_status;
+  const notEvaluated =
+    validationSkipped || scoreStatus === 'skipped' || scoreStatus === 'unavailable';
   const issueCount = analysis.result?.issues?.length ?? 0;
   const parts = [analysis.status === 'completed' ? 'Análise concluída.' : 'Análise finalizada.'];
 
-  // A neutral 100 from a skipped validation is not an evaluation.
-  if (!validationSkipped && typeof score === 'number' && Number.isFinite(score)) {
+  // A neutral 100 from a skipped validation (or an error score) is not an
+  // evaluation and must not be announced as one.
+  if (!notEvaluated && typeof score === 'number' && Number.isFinite(score)) {
     parts.push(`Score ${score}/100.`);
   }
   parts.push(

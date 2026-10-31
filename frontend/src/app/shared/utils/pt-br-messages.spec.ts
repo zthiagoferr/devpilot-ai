@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   REPOSITORY_EMPTY_MESSAGE,
+  STRUCTURAL_SCORE_NOTE,
   analysisSummaryPtBr,
+  coverageCheckLabel,
+  coverageLimitationLabel,
   postValidationMessage,
   repositoryEmptyMessagePtBr,
+  resolveScoreStatus,
+  scoreStatusEmptyLabel,
+  scoreStatusNotice,
 } from './pt-br-messages';
 
 describe('analysisSummaryPtBr', () => {
@@ -79,6 +85,49 @@ describe('analysisSummaryPtBr', () => {
   });
 });
 
+describe('score status presentation', () => {
+  it('resolves legacy payloads to evaluated', () => {
+    expect(resolveScoreStatus(undefined, undefined)).toBe('evaluated');
+    expect(resolveScoreStatus(null, false)).toBe('evaluated');
+    expect(resolveScoreStatus(undefined, true)).toBe('skipped');
+    expect(resolveScoreStatus('partial', false)).toBe('partial');
+    expect(resolveScoreStatus('unavailable', true)).toBe('unavailable');
+  });
+
+  it('only shows a caveat when the score is not a full evaluation', () => {
+    expect(scoreStatusNotice('evaluated')).toBeNull();
+    expect(scoreStatusNotice('partial')).toContain('Análise parcial');
+    expect(scoreStatusNotice('skipped')).toBe('Idioma não reconhecido — selecione manualmente.');
+    expect(scoreStatusNotice('unavailable')).toContain('Validação indisponível');
+  });
+
+  it('hides the number for skipped and unavailable scores', () => {
+    expect(scoreStatusEmptyLabel('evaluated')).toBeNull();
+    expect(scoreStatusEmptyLabel('partial')).toBeNull();
+    expect(scoreStatusEmptyLabel('skipped')).toBe('Não avaliado');
+    expect(scoreStatusEmptyLabel('unavailable')).toBe('Indisponível');
+  });
+
+  it('explains that no finding does not mean no risk', () => {
+    expect(STRUCTURAL_SCORE_NOTE).toContain('não garante ausência de riscos');
+  });
+});
+
+describe('coverage presentation', () => {
+  it('translates known check codes and limitations', () => {
+    expect(coverageCheckLabel('syntax')).toBe('Sintaxe');
+    expect(coverageCheckLabel('delimiters')).toBe('Delimitadores');
+    expect(coverageLimitationLabel('No runtime or semantic analysis')).toBe(
+      'Sem análise de execução ou semântica',
+    );
+  });
+
+  it('keeps unknown entries visible instead of dropping coverage', () => {
+    expect(coverageCheckLabel('custom_check')).toBe('custom_check');
+    expect(coverageLimitationLabel('Custom limitation')).toBe('Custom limitation');
+  });
+});
+
 describe('repositoryEmptyMessagePtBr', () => {
   it('replaces the known English default with the local pt-BR message', () => {
     expect(
@@ -119,6 +168,39 @@ describe('postValidationMessage', () => {
       'Validação local (heurística) reprovada: o problema alvo ainda é apontado pelo validador local; 1 novo(s) achado(s) de alta severidade foram introduzidos.',
     );
     expect(message).not.toContain('Correction failed');
+  });
+
+  it('translates remaining original findings and medium regressions', () => {
+    const message = postValidationMessage(
+      'failed',
+      'Correction failed local validation: target resolved but 2 original issue(s) remain; 1 new medium-severity finding(s) were introduced. This is a deterministic local check, not an official Protheus validation.',
+    );
+
+    expect(message).toBe(
+      'Validação local (heurística) reprovada: o problema alvo foi resolvido, mas 2 problema(s) original(is) permanecem; 1 novo(s) achado(s) de severidade média foram introduzidos.',
+    );
+  });
+
+  it('translates a correction that only changed trailing whitespace', () => {
+    const message = postValidationMessage(
+      'failed',
+      'Correction failed local validation: the corrected code has no effective change (only trailing whitespace or the final newline differ), so the problem reported in the baseline persists. This is a deterministic local check, not an official Protheus validation.',
+    );
+
+    expect(message).toContain('não tem mudança efetiva');
+    expect(message).not.toContain('no effective change');
+  });
+
+  it('does not claim a baseline problem when an identical correction had a clean baseline', () => {
+    const message = postValidationMessage(
+      'failed',
+      'Correction failed local validation: the corrected code is identical to the original file, so no change was applied and there was no baseline problem to resolve. This is a deterministic local check, not an official Protheus validation.',
+    );
+
+    expect(message).toBe(
+      'Validação local (heurística) reprovada: o código corrigido é idêntico ao arquivo original, então nenhuma mudança foi aplicada e não havia problema na linha de base a resolver.',
+    );
+    expect(message).not.toContain('o problema da linha de base persiste');
   });
 
   it('falls back to a complete local explanation for unknown reasons', () => {

@@ -10,11 +10,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
 
 import { LoginPromptService } from '../../core/auth/login-prompt.service';
 import { AuthService } from '../../core/auth/auth.service';
+import { needsEmailVerification } from '../../core/auth/auth.types';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { IconComponent, IconName } from '../../shared/components/icon/icon.component';
 import { AuthDialogComponent } from '../auth/auth-dialog.component';
@@ -39,6 +40,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   imports: [
     RouterOutlet,
     RouterLink,
+    RouterLinkActive,
     ButtonComponent,
     IconComponent,
     AuthDialogComponent,
@@ -100,6 +102,24 @@ export class AppShellComponent {
     window.addEventListener('resize', handleResize);
     this.destroyRef.onDestroy(() => window.removeEventListener('resize', handleResize));
 
+    // Coming back to the tab/Window reloads the session (throttled to 60 s by
+    // the service), so a confirmation completed in another tab is picked up
+    // without polling. No polling loop is added here.
+    const handleFocus = (): void => {
+      void this.account.refreshUser({ reason: 'return' });
+    };
+    const handleVisibilityChange = (): void => {
+      if (!document.hidden) {
+        void this.account.refreshUser({ reason: 'return' });
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    this.destroyRef.onDestroy(() => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    });
+
     effect((onCleanup) => {
       if (!this.drawerOpen()) {
         return;
@@ -135,6 +155,15 @@ export class AppShellComponent {
     if (this.drawerOpen()) {
       this.closeDrawer(true);
     }
+  }
+
+  /** The banner and the account badge depend on a real, unconfirmed account. */
+  protected needsVerification(): boolean {
+    return needsEmailVerification(this.account.user());
+  }
+
+  protected openRegister(): void {
+    this.prompts.open({ mode: 'register' });
   }
 
   protected async signOut(): Promise<void> {

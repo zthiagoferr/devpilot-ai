@@ -17,7 +17,7 @@ import {
   AnalysisIssue,
   Correction,
   CorrectionCreate,
-  CorrectionIssueRef,
+  CorrectionMode,
   CorrectionStatus,
   PostValidation,
 } from '../../../core/api/api.types';
@@ -28,9 +28,16 @@ import { IconComponent } from '../icon/icon.component';
 import { InlineStatusComponent, InlineStatusTone } from '../inline-status/inline-status.component';
 import { SourceViewerComponent } from '../source-viewer/source-viewer.component';
 import { DiffLine, parseUnifiedDiff } from './diff';
-import { ADVPL_DISCLAIMER } from '../issue-list/issue-presentation';
+import {
+  ADVPL_DISCLAIMER,
+  causeLabel,
+  issueLocation,
+  severityLabel,
+  severityTone,
+} from '../issue-list/issue-presentation';
 import { postValidationMessage } from '../../../shared/utils/pt-br-messages';
 import { correctedFilename, diffFilename, downloadText } from './download';
+import { toIssueRef } from './correction-issue-ref';
 
 interface PanelStatus {
   readonly tone: InlineStatusTone;
@@ -41,6 +48,12 @@ interface ValidationPresentation {
   readonly label: string;
   readonly tone: BadgeTone;
   readonly message: string;
+  readonly targetResolved: boolean;
+  readonly resolvedCount: number;
+  readonly originalCount: number;
+  readonly remaining: readonly AnalysisIssue[];
+  readonly newIssues: readonly AnalysisIssue[];
+  readonly warnings: readonly AnalysisIssue[];
 }
 
 const DECISION_LABELS: Readonly<Record<CorrectionStatus, string>> = {
@@ -76,16 +89,28 @@ const DECISION_TONES: Readonly<Record<CorrectionStatus, BadgeTone>> = {
   styleUrl: './correction-panel.component.css',
 })
 export class CorrectionPanelComponent {
-  readonly issue = input.required<AnalysisIssue>();
+  /** A single issue (default mode). Optional because full mode uses `issues`. */
+  readonly issue = input<AnalysisIssue | null>(null);
   readonly source = input.required<string>();
   readonly language = input<string | null>(null);
   readonly file = input<string | null>(null);
   readonly analysisId = input<string | null>(null);
   readonly protheusVersion = input<string | null>(null);
   readonly authenticated = input(false);
+  /** `single` preserves the historical one-issue contract. */
+  readonly mode = input<CorrectionMode>('single');
+  /** Targets of a full correction. Ignored in single mode. */
+  readonly issues = input<readonly AnalysisIssue[]>([]);
+  /**
+   * Incremented by the parent to start a full correction. Kept as an input so
+   * the issue-list header button can own the trigger and the loading state.
+   */
+  readonly requestToken = input(0);
 
   readonly loginRequested = output<void>();
   readonly decided = output<Correction>();
+  /** Emits whenever a provider request starts/finishes. */
+  readonly busyChange = output<boolean>();
 
   private readonly api = inject(ApiClient);
   private readonly auth = inject(AuthService);
@@ -102,22 +127,34 @@ export class CorrectionPanelComponent {
   protected readonly validationLabelId = `${this.panelId}-validation`;
 
   private lastIssue: AnalysisIssue | null = null;
+  private lastIssues: readonly AnalysisIssue[] | null = null;
+  private lastMode: CorrectionMode = 'single';
   private lastAnalysisId: string | null | undefined = undefined;
+  private lastRequestToken = 0;
   /** Bumped on every identity change; late responses for the old issue are dropped. */
   private generation = 0;
 
   constructor() {
     // The list reuses this panel instance when the visible result changes (a
     // tab switch) or when the issue input is rebound. A correction belongs to
-    // one issue/analysis pair, so the previous state must not survive an
-    // identity change.
+    // one issue/analysis pair (or to one full-mode issue set), so the previous
+    // state must not survive an identity change.
     effect(() => {
       const issue = this.issue();
+      const issues = this.issues();
+      const mode = this.mode();
       const analysisId = this.analysisId();
-      if (issue === this.lastIssue && analysisId === this.lastAnalysisId) {
+      if (
+        issue === this.lastIssue &&
+        issues === this.lastIssues &&
+        mode === this.lastMode &&
+        analysisId === this.lastAnalysisId
+      ) {
         return;
       }
       this.lastIssue = issue;
+      this.lastIssues = issues;
+      this.lastMode = mode;
       this.lastAnalysisId = analysisId;
       this.generation += 1;
       this.correction.set(null);
@@ -126,19 +163,56 @@ export class CorrectionPanelComponent {
       this.requesting.set(false);
       this.deciding.set(false);
       this.decisionInFlight.set(null);
+      this.busyChange.emit(false);
+    });
+
+    // A full correction is started by the issue-list header. The token input
+    // decouples the trigger from the panel state, so the button can own the
+    // loading/disabled presentation without duplicating the request logic.
+    effect(() => {
+      const token = this.requestToken();
+      if (token === this.lastRequestToken) {
+        return;
+      }
+      this.lastRequestToken = token;
+      if (this.mode() === 'full' && token > 0) {
+        void this.request();
+      }
     });
   }
 
-  protected readonly canRequest = computed(() => this.source().trim() !== '' && !this.requesting());
+  protected readonly isFull = computed(() => this.mode() === 'full');
+
+  protected readonly includedCount = computed(() =>
+    this.isFull() ? this.issues().length : this.issue() === null ? 0 : 1,
+  );
+
+  protected readonly heading = computed(() =>
+    this.isFull()
+      ? `Correção de ${this.includedCount()} ${
+          this.includedCount() === 1 ? 'problema' : 'problemas'
+        } com IA`
+      : 'Correção com IA',
+  );
+
+  protected readonly canRequest = computed(
+    () =>
+      this.source().trim() !== '' &&
+      this.includedCount() > 0 &&
+      !this.requesting(),
+  );
 
   protected readonly canDecide = computed(
     () => this.correction()?.status === 'pending' && this.authenticated() && !this.deciding(),
   );
 
   protected readonly isAdvpl = computed(() => {
-    const issueLanguage = (this.issue().language ?? '').trim().toLowerCase();
+    const issueLanguage = (this.issue()?.language ?? '').trim().toLowerCase();
     const language = (this.language() ?? '').trim().toLowerCase();
-    return issueLanguage === 'advpl' || language === 'advpl';
+    const listedAdvpl = this.issues().some(
+      (issue) => (issue.language ?? '').trim().toLowerCase() === 'advpl',
+    );
+    return issueLanguage === 'advpl' || language === 'advpl' || listedAdvpl;
   });
 
   protected readonly advplDisclaimer = ADVPL_DISCLAIMER;
@@ -160,6 +234,22 @@ export class CorrectionPanelComponent {
     return DECISION_TONES[status];
   }
 
+  protected findingLabel(issue: AnalysisIssue): string {
+    return causeLabel(issue) || issue.message;
+  }
+
+  protected findingSeverity(issue: AnalysisIssue): string {
+    return severityLabel(issue);
+  }
+
+  protected findingTone(issue: AnalysisIssue): BadgeTone {
+    return severityTone(issue);
+  }
+
+  protected findingLocation(issue: AnalysisIssue): string {
+    return issueLocation(issue, this.file());
+  }
+
   protected async request(): Promise<void> {
     if (this.requesting()) {
       return;
@@ -171,10 +261,23 @@ export class CorrectionPanelComponent {
       });
       return;
     }
+    if (this.includedCount() === 0) {
+      this.status.set({
+        tone: 'warning',
+        message: 'Nenhum problema foi selecionado para a correção.',
+      });
+      return;
+    }
 
     this.requesting.set(true);
+    this.busyChange.emit(true);
     this.copied.set(false);
-    this.status.set({ tone: 'loading', message: 'Gerando correção com IA…' });
+    this.status.set({
+      tone: 'loading',
+      message: this.isFull()
+        ? `Gerando correção única para ${this.includedCount()} problema(s) com IA…`
+        : 'Gerando correção com IA…',
+    });
     const generation = this.generation;
 
     try {
@@ -198,8 +301,11 @@ export class CorrectionPanelComponent {
         message: correctionErrorMessage(error),
       });
     } finally {
+      // A superseded request must not clear the busy state of the request that
+      // replaced it (the parent would re-enable the button with one in flight).
       if (generation === this.generation) {
         this.requesting.set(false);
+        this.busyChange.emit(false);
       }
     }
   }
@@ -338,27 +444,30 @@ export class CorrectionPanelComponent {
   }
 
   private requestPayload(): CorrectionCreate {
-    const issue = this.issue();
-    const issueRef: CorrectionIssueRef = {
-      message: issue.message,
-      severity: issue.severity ?? 'info',
-      ...(typeof issue.line === 'number' ? { line: issue.line } : {}),
-      ...(typeof issue.column === 'number' ? { column: issue.column } : {}),
-      ...(issue.rule_id ? { rule_id: issue.rule_id } : {}),
-      ...(issue.code ? { code: issue.code } : {}),
-    };
     const language = this.language();
     const file = this.file();
     const analysisId = this.analysisId();
     const protheusVersion = this.protheusVersion();
-
-    return {
+    const base = {
       ...(analysisId ? { analysis_id: analysisId } : {}),
       ...(file ? { file } : {}),
       ...(language ? { language } : {}),
       source_code: this.source(),
-      issue: issueRef,
       ...(protheusVersion ? { protheus_version: protheusVersion } : {}),
+    };
+
+    if (this.isFull()) {
+      return {
+        ...base,
+        mode: 'full',
+        issues: this.issues().map(toIssueRef),
+      };
+    }
+
+    const issue = this.issue();
+    return {
+      ...base,
+      ...(issue === null ? {} : { issue: toIssueRef(issue) }),
     };
   }
 }
@@ -367,6 +476,18 @@ function validationPresentation(
   postValidation: PostValidation | undefined,
 ): ValidationPresentation {
   const status = postValidation?.status ?? 'not_run';
+  const resolved = postValidation?.issues_resolved ?? [];
+  const remaining = postValidation?.issues_remaining ?? [];
+  const newIssues = postValidation?.issues_new ?? [];
+  const warnings = postValidation?.issues_warnings ?? [];
+  const details = {
+    targetResolved: postValidation?.target_resolved === true,
+    resolvedCount: resolved.length,
+    originalCount: resolved.length + remaining.length,
+    remaining,
+    newIssues,
+    warnings,
+  };
 
   switch (status) {
     case 'passed':
@@ -374,18 +495,21 @@ function validationPresentation(
         label: 'Passou',
         tone: 'success',
         message: postValidationMessage('passed', postValidation?.summary),
+        ...details,
       };
     case 'failed':
       return {
         label: 'Falhou',
         tone: 'warning',
         message: postValidationMessage('failed', postValidation?.summary),
+        ...details,
       };
     default:
       return {
         label: 'Não executada',
         tone: 'neutral',
         message: postValidationMessage('not_run', postValidation?.summary),
+        ...details,
       };
   }
 }
@@ -415,7 +539,13 @@ function correctionErrorMessage(error: unknown): string {
       if (error.message.toLowerCase().includes('safety checks')) {
         return 'A correção proposta foi rejeitada pelas verificações de segurança.';
       }
-      return `A solicitação de correção é inválida: ${error.message}`;
+      if (error.message.toLowerCase().includes('too many issues')) {
+        return 'Há problemas demais para corrigir de uma vez. Reduza a quantidade e tente novamente.';
+      }
+      if (error.message.toLowerCase().includes('no issues to correct')) {
+        return 'Nenhum problema foi encontrado para corrigir neste arquivo.';
+      }
+      return 'A solicitação de correção é inválida. Revise o arquivo e tente novamente.';
     default:
       return error.message;
   }

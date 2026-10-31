@@ -10,6 +10,24 @@
     Nenhum problema encontrado nesta análise.
   </p>
 } @else {
+  @if (canCorrect()) {
+    <div class="issue-list__bulk">
+      <p class="issue-list__bulk-text">
+        Corrija todos os problemas deste arquivo em uma única sugestão de IA.
+      </p>
+      <app-button
+        size="sm"
+        variant="secondary"
+        [loading]="fullBusy()"
+        [disabled]="fullBusy()"
+        (click)="requestAllCorrections()"
+      >
+        <app-icon name="sparkles" [size]="15" />
+        Corrigir todos com IA ({{ sortedIssues().length }})
+      </app-button>
+    </div>
+  }
+
   <ul class="issue-list">
     @for (issue of sortedIssues(); track $index) {
       <li class="issue">
@@ -74,4 +92,21 @@
       </li>
     }
   </ul>
+
+  <div class="issue-list__full-panel" [hidden]="!fullPanelOpen()">
+    <app-correction-panel
+      mode="full"
+      [issues]="sortedIssues()"
+      [source]="source()"
+      [language]="language()"
+      [file]="file()"
+      [analysisId]="analysisId()"
+      [protheusVersion]="protheusVersion()"
+      [authenticated]="authenticated()"
+      [requestToken]="fullRequestToken()"
+      (busyChange)="onFullBusy($event)"
+      (loginRequested)="forwardLogin()"
+      (decided)="forwardDecision($event)"
+    />
+  </div>
 }

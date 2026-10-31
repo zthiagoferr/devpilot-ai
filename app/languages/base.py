@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 #: Languages for which a validator is available. ``unknown`` is a detection
 #: outcome, never a supported validation target.
@@ -25,6 +25,31 @@ LanguageId = Literal["python", "advpl", "html", "css", "javascript", "unknown"]
 LanguageSource = Literal["manual", "extension", "content", "fallback"]
 Origin = Literal["validator", "ai", "mixed"]
 AnalysisKind = Literal["heuristic_validation", "ia_analysis", "official_validation"]
+
+#: Confidence of a validation *score*, which is deliberately distinct from the
+#: detection confidence. A score of 100 means "no finding", not "no risk":
+#:
+#: * ``evaluated``   - the structural validator ran at high detection confidence;
+#: * ``partial``     - a validator ran, but detection confidence is low enough
+#:                     that the findings should be reviewed manually;
+#: * ``skipped``     - no validator ran (unknown/undetected language), so the
+#:                     neutral 100 is not an evaluation;
+#: * ``unavailable`` - the validator raised, so the score reflects the error
+#:                     warning rather than an analysis.
+ScoreStatus = Literal["evaluated", "partial", "skipped", "unavailable"]
+
+#: Stable, ordered vocabulary for :data:`ScoreStatus`.
+SCORE_STATUSES: tuple[str, ...] = ("evaluated", "partial", "skipped", "unavailable")
+
+#: Human-readable semantics of each :data:`ScoreStatus`, kept next to the type
+#: so API, agents, and UI agree on what a score means.
+SCORE_STATUS_MEANINGS: Mapping[str, str] = {
+    "evaluated": "A structural validator ran with adequate detection confidence.",
+    "partial": "A structural validator ran, but detection confidence was low.",
+    "skipped": "No structural validator ran (language unknown or undetected).",
+    "unavailable": "The structural validator could not complete.",
+}
+
 Severity = Literal[
     "critical",
     "high",
@@ -82,6 +107,17 @@ class UnsupportedLanguageError(ValueError):
         super().__init__(f"Unsupported language: {language}")
 
 
+def normalize_score_status(value: Any) -> ScoreStatus:
+    """Return a valid :data:`ScoreStatus`, defaulting to ``evaluated``.
+
+    The default keeps legacy payloads (which predate coverage metadata)
+    compatible: a validator that ran is still considered an evaluation.
+    """
+    if isinstance(value, str) and value in SCORE_STATUSES:
+        return cast(ScoreStatus, value)
+    return "evaluated"
+
+
 def normalize_severity(value: str | None) -> str:
     """Return the canonical severity for a UI or legacy severity value.
 
@@ -99,6 +135,19 @@ def compute_score(issues: Iterable[LanguageIssue]) -> int:
         SEVERITY_WEIGHT[normalize_severity(issue.severity)] for issue in issues
     )
     return max(0, 100 - penalty)
+
+
+def copy_coverage(coverage: Mapping[str, Any]) -> dict[str, Any]:
+    """Return an independent copy of a declared coverage mapping.
+
+    Validators declare coverage once at module level, so a shallow ``dict()``
+    would share the nested lists with the declaration. Copying them keeps a
+    consumer from mutating the validator's own ``COVERAGE`` constant.
+    """
+    return {
+        str(key): list(value) if isinstance(value, (list, tuple)) else value
+        for key, value in coverage.items()
+    }
 
 
 @dataclass(frozen=True, slots=True)

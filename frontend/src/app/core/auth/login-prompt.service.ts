@@ -45,7 +45,12 @@ export class LoginPromptService {
       this.noticeState.set(LOGIN_UNAVAILABLE_MESSAGE);
       return false;
     }
-    if (!this.auth.loginAvailable()) {
+
+    // `error` is allowed on purpose: the dialog shows the failure and a
+    // "Tentar novamente" action that calls `retryBootstrap()`. Only the
+    // transient states (idle/loading) and unconfigured deployments stay closed.
+    const status = this.auth.status();
+    if (status !== 'ready' && status !== 'error') {
       this.noticeState.set(this.unavailableMessage());
       return false;
     }

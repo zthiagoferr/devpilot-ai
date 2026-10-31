@@ -36,18 +36,21 @@ from app.languages.references import (
     normalize_repo_path,
 )
 from app.languages.registry import get_validator, validate_source
+from app.languages.spec import SPECS, LanguageSpec, spec_for_language
 
 __all__ = [
     "AUTO_CONFIDENCE_THRESHOLD",
     "CANDIDATE_CONFIDENCE_FLOOR",
     "LANGUAGE_EXTENSIONS",
     "SEVERITY_WEIGHT",
+    "SPECS",
     "SUPPORTED_LANGUAGES",
     "AnalysisKind",
     "Detection",
     "LanguageId",
     "LanguageIssue",
     "LanguageSource",
+    "LanguageSpec",
     "LanguageValidator",
     "Origin",
     "Reference",
@@ -65,6 +68,7 @@ __all__ = [
     "language_for_extension",
     "normalize_repo_path",
     "normalize_severity",
+    "spec_for_language",
     "supported_extensions",
     "validate_source",
 ]

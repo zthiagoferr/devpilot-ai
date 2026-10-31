@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - preview-pages
   workflow_dispatch:
 
 permissions:
@@ -18,17 +17,85 @@ concurrency:
 
 env:
   # Configure esta variável pública em Settings > Secrets and variables > Actions.
-  # A ausência de uma URL mantém a interface disponível, mas sem chamadas à API.
+  # Publicar sem ela geraria uma SPA sem backend: o job build falha antes.
   DEVPILOT_API_URL: ${{ vars.DEVPILOT_API_URL }}
 
 jobs:
+  verify:
+    name: Verificar qualidade
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências Python
+        run: python -m pip install -r requirements.txt
+
+      - name: Compilar Python
+        run: python -m compileall -q app tests alembic
+
+      - name: Executar testes Python
+        run: python -m pytest -p no:cacheprovider
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências do frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Verificar tipos da aplicação
+        working-directory: frontend
+        run: npx tsc --noEmit -p tsconfig.app.json
+
+      - name: Verificar tipos dos testes
+        working-directory: frontend
+        run: npx tsc --noEmit -p tsconfig.spec.json
+
+      - name: Executar testes do frontend
+        working-directory: frontend
+        run: npx ng test --watch=false
+
+      - name: Build de produção do frontend
+        working-directory: frontend
+        run: npx ng build --configuration production
+
   build:
     name: Preparar frontend estático
+    needs: verify
     runs-on: ubuntu-latest
 
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
+
+      # O Pages publica uma SPA que chama a API pública: sem URL configurada o
+      # site não tem backend. Falhar aqui evita publicar um artefato quebrado.
+      - name: Validar URL pública da API
+        shell: bash
+        env:
+          API_BASE_URL: ${{ env.DEVPILOT_API_URL }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${API_BASE_URL//[[:space:]]/}" ]]; then
+            echo "::error title=DEVPILOT_API_URL ausente::Defina a repository variable DEVPILOT_API_URL (Settings > Secrets and variables > Actions > Variables) antes de publicar o frontend."
+            exit 1
+          fi
 
       - name: Configurar GitHub Pages
         id: pages
@@ -228,7 +295,8 @@ jobs:
 
   deploy:
     name: Publicar no GitHub Pages
-    needs: build
+    needs: [verify, build]
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages

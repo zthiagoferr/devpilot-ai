@@ -130,7 +130,7 @@ API keys and connection credentials are excluded from settings representations a
 
 ### CORS and frontend origins
 
-`FRONTEND_ORIGINS` is a comma-separated allowlist of **exact** origins (scheme + host + port), for example `http://localhost:4200`. Wildcards are not used: the middleware only returns `Access-Control-Allow-Origin` for the listed origins and does not enable credentials. The deployment environment (for example the Render variable) controls this list, not the frontend code.
+`FRONTEND_ORIGINS` is a comma-separated allowlist of **exact** origins (scheme + host + port), for example `http://localhost:4200`. Wildcards are not used: the middleware only returns `Access-Control-Allow-Origin` for the listed origins and does not enable credentials. The deployment environment (for example the Vercel environment variable) controls this list, not the frontend code.
 
 For local development, start the API with the Angular dev-server origin:
 
@@ -220,7 +220,7 @@ docker compose up --build
 
 The Compose configuration is the supported containerized local/production-style configuration in this repository. It does not claim cloud deployment, Kubernetes support, or a distributed execution model.
 
-For a step-by-step first public deployment (Render + Neon), see [DEPLOY.md](DEPLOY.md).
+For a step-by-step first public deployment (Vercel + Neon), see [DEPLOY.md](DEPLOY.md).
 
 ## Migrations
 
@@ -242,7 +242,7 @@ python -m pytest
 
 Tests cover agents, orchestration, API validation, persistence, migrations, dashboard HTML and local assets, filesystem safety, tool and skill registries, executor failures, MCP SDK v2 integration, and health/readiness behavior. GitHub and other external calls use injected clients, transports, or mocks; the suite does not depend on live external services or network state.
 
-GitHub Actions runs the project test suite and its supported checks on repository changes. The workflow is intended to keep builds reproducible and does not deploy the project.
+GitHub Actions runs CI on `main` and pull requests. The Pages workflow deploys the SPA only after its `verify` job (pytest, Vitest, TypeScript, production build) and artifact checks pass. Publishing to Pages requires the repository variable `DEVPILOT_API_URL`; the build preflight fails when it is empty. The FastAPI backend is deployed by Vercel Git integration, not by GitHub Actions; migrations are manual.
 
 ## Security model
 

@@ -10,6 +10,7 @@ from app.languages.detector import (
     language_for_extension,
     supported_extensions,
 )
+from app.languages.registry import validate_source
 
 ADVPL_SOURCE = (
     "User Function Foo()\n"
@@ -223,6 +224,108 @@ def test_content_detection_without_extension(source: str, language: str) -> None
     assert detection.source == "content"
     assert detection.confidence >= 0.6
     assert detection.candidates
+
+
+def test_short_advpl_snippet_without_local_or_function_is_detected() -> None:
+    source = 'If nX > 1\n    MsgInfo("positivo")\nEndIf\n'
+    detection = detect_language(source)
+
+    assert detection.language == "advpl"
+    assert detection.source == "content"
+    assert detection.confidence >= 0.6
+
+
+def test_advpl_if_with_msg_info_and_no_endif_is_detected() -> None:
+    # The reproduced snippet omits the function header, ``Local``, and even
+    # ``EndIf``; the combined If+MsgInfo signal must still be enough.
+    source = 'If nX > 1\n    MsgInfo("positivo")\n'
+    detection = detect_language(source)
+
+    assert detection.language == "advpl"
+
+
+def test_c_like_if_else_is_not_detected_as_advpl() -> None:
+    source = (
+        "if (value > 1) {\n"
+        "    printf(\"positive\");\n"
+        "} else {\n"
+        "    printf(\"negative\");\n"
+        "}\n"
+    )
+    detection = detect_language(source)
+
+    assert detection.language != "advpl"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # Single-line and multi-line variants of the reproduced snippet: a bare
+        # ``function`` header is idiomatic JavaScript and must not be read as an
+        # ADVPL function declaration.
+        "function check(value) { if (value = 10) { return true; } return value; }",
+        (
+            "function check(value) {\n"
+            "  if (value = 10) {\n"
+            "    return true;\n"
+            "  }\n"
+            "  return value;\n"
+            "}\n"
+        ),
+    ],
+)
+def test_javascript_function_without_extension_is_javascript(source: str) -> None:
+    detection = detect_language(source)
+
+    assert detection.language == "javascript"
+    assert detection.source == "content"
+    assert detection.confidence == 0.68
+    assert detection.candidates[0][0] == "javascript"
+
+
+def test_javascript_function_is_not_validated_as_advpl() -> None:
+    source = (
+        "function check(value) {\n"
+        "  if (value = 10) {\n"
+        "    return true;\n"
+        "  }\n"
+        "  return value;\n"
+        "}\n"
+    )
+    result = validate_source(source)
+
+    assert result.language == "javascript"
+    assert not any(issue.cause == "unclosed_block" for issue in result.issues)
+
+
+def test_javascript_function_declaration_with_const_is_javascript() -> None:
+    source = (
+        "function compute(items) {\n"
+        "  const total = items.length;\n"
+        "  return total;\n"
+        "}\n"
+    )
+    detection = detect_language(source)
+
+    assert detection.language == "javascript"
+    assert detection.source == "content"
+    assert detection.confidence == 0.78
+
+
+def test_advpl_user_function_without_extension_is_advpl() -> None:
+    detection = detect_language(ADVPL_SOURCE)
+
+    assert detection.language == "advpl"
+    assert detection.source == "content"
+    assert detection.confidence >= 0.6
+
+
+def test_advpl_static_function_without_extension_is_advpl() -> None:
+    detection = detect_language("Static Function Calc()\nReturn Nil\n")
+
+    assert detection.language == "advpl"
+    assert detection.source == "content"
+    assert detection.confidence >= 0.6
 
 
 def test_fallback_unknown() -> None:

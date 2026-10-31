@@ -136,6 +136,24 @@ def test_create_correction_returns_pending_record(correction_client) -> None:
     assert data["decided_at"] is None
 
 
+def test_create_correction_exposes_additive_post_validation_fields(
+    correction_client,
+) -> None:
+    """The new lists are additive: old clients keep reading the old fields."""
+    client, analysis_id, _app = correction_client
+
+    data = _create(client, analysis_id)
+    validation = data["post_validation"]
+
+    assert validation["status"] == "passed"
+    assert [issue["cause"] for issue in validation["issues_resolved"]] == [
+        "python_syntax"
+    ]
+    assert validation["issues_remaining"] == []
+    assert validation["issues_new"] == []
+    assert validation["issues_warnings"] == []
+
+
 def test_create_anonymous_correction_is_allowed(correction_client) -> None:
     _client, analysis_id, app = correction_client
     anonymous = TestClient(app)
@@ -338,10 +356,50 @@ def test_invalid_provider_response_is_a_502(correction_client) -> None:
     response = client.post("/corrections", json=_body(analysis_id))
 
     assert response.status_code == 502
-    assert "provider" in response.json()["detail"].lower()
+    assert response.json()["detail"] == "The AI provider returned an invalid response."
 
 
-def test_slow_provider_is_a_502(correction_client) -> None:
+def test_safety_rejection_is_a_422(correction_client) -> None:
+    from app.api.corrections import get_correction_llm
+
+    client, analysis_id, app = correction_client
+    app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+        FakeLLMProvider(
+            response=_payload(
+                FIXED_PYTHON,
+                explanation="The corrected file compiles successfully.",
+            )
+        )
+    )
+
+    response = client.post("/corrections", json=_body(analysis_id))
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "The proposed correction was rejected by safety checks."
+    )
+
+
+def test_incomplete_provider_response_is_a_502(correction_client) -> None:
+    from app.api.corrections import get_correction_llm
+    from app.llm.base import IncompleteLLMResponseError
+
+    class IncompleteProvider(FakeLLMProvider):
+        async def generate(self, prompt, *, system_prompt=None):
+            raise IncompleteLLMResponseError("incomplete")
+
+    client, analysis_id, app = correction_client
+    app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+        IncompleteProvider()
+    )
+
+    response = client.post("/corrections", json=_body(analysis_id))
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "The AI provider returned an invalid response."
+
+
+def test_slow_provider_is_a_504(correction_client) -> None:
     import asyncio
 
     from app.api.corrections import get_correction_llm, get_settings
@@ -362,6 +420,507 @@ def test_slow_provider_is_a_502(correction_client) -> None:
     )
     try:
         response = client.post("/corrections", json=_body(analysis_id))
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+        app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+            FakeLLMProvider(response=_payload())
+        )
+
+    assert response.status_code == 504
+    assert response.json()["detail"] == (
+        "The AI provider timed out. Try a smaller file or try again."
+    )
+
+
+# ---------------------------------------------------- Fase D: modo full (D1)
+VALID_PYTHON = "value = 1\n"
+
+
+def test_create_full_correction_derives_baseline_targets(correction_client) -> None:
+    client, analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections",
+        json=_body(analysis_id, mode="full", issue=None),
+    )
+
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["issue_ref"] == "full:1"
+    assert data["status"] == "pending"
+    assert data["post_validation"]["status"] == "passed"
+    assert [issue["cause"] for issue in data["post_validation"]["issues_resolved"]] == [
+        "python_syntax"
+    ]
+
+
+def test_create_full_correction_accepts_explicit_issues(correction_client) -> None:
+    client, analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections",
+        json=_body(
+            analysis_id,
+            mode="full",
+            issue=None,
+            issues=[
+                {
+                    "message": "Python syntax error: expected ':'",
+                    "severity": "critical",
+                    "line": 1,
+                    "code": "python_syntax",
+                },
+                {
+                    "message": "Second heuristic problem",
+                    "severity": "low",
+                    "line": 2,
+                },
+            ],
+        ),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["issue_ref"] == "full:2"
+
+
+def test_create_single_correction_still_requires_an_issue(correction_client) -> None:
+    client, analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections",
+        json=_body(analysis_id, mode="single", issue=None),
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_rejects_an_invalid_mode(correction_client) -> None:
+    client, analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections",
+        json=_body(analysis_id, mode="invalid"),
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_full_correction_rejects_too_many_issues(correction_client) -> None:
+    client, analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections",
+        json=_body(
+            analysis_id,
+            mode="full",
+            issue=None,
+            issues=[
+                {"message": f"Problem {index}", "severity": "low", "line": index}
+                for index in range(1, 12)
+            ],
+        ),
+    )
+
+    assert response.status_code == 422
+    assert "Too many issues" in response.json()["detail"]
+
+
+def test_create_full_correction_without_targets_is_422(correction_client) -> None:
+    from app.api.corrections import get_correction_llm
+    from app.llm.fake import FakeLLMProvider
+    from app.services.llm_service import LLMService
+
+    client, analysis_id, app = correction_client
+    app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+        FakeLLMProvider(response=_payload("value = 2\n"))
+    )
+    try:
+        response = client.post(
+            "/corrections",
+            json=_body(
+                analysis_id,
+                source_code=VALID_PYTHON,
+                mode="full",
+                issue=None,
+            ),
+        )
+    finally:
+        app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+            FakeLLMProvider(response=_payload())
+        )
+
+    assert response.status_code == 422
+    assert "No issues to correct" in response.json()["detail"]
+
+
+def test_create_full_correction_invalid_provider_response_is_502(
+    correction_client,
+) -> None:
+    from app.api.corrections import get_correction_llm
+    from app.llm.fake import FakeLLMProvider
+    from app.services.llm_service import LLMService
+
+    client, analysis_id, app = correction_client
+    app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+        FakeLLMProvider(response="not a json payload")
+    )
+
+    response = client.post(
+        "/corrections",
+        json=_body(analysis_id, mode="full", issue=None),
+    )
+
+    assert response.status_code == 502
+
+
+def test_create_full_correction_slow_provider_is_504(correction_client) -> None:
+    import asyncio
+
+    from app.api.corrections import get_correction_llm, get_settings
+    from app.core.config import Settings
+    from app.llm.fake import FakeLLMProvider
+    from app.services.llm_service import LLMService
+
+    class SlowProvider(FakeLLMProvider):
+        async def generate(self, prompt, *, system_prompt=None):
+            await asyncio.sleep(0.2)
+            return await super().generate(prompt, system_prompt=system_prompt)
+
+    client, analysis_id, app = correction_client
+    app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+        SlowProvider(response=_payload())
+    )
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None,
+        llm_provider="fake",
+        llm_timeout_seconds=0.01,
+    )
+    try:
+        response = client.post(
+            "/corrections",
+            json=_body(analysis_id, mode="full", issue=None),
+        )
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+        app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+            FakeLLMProvider(response=_payload())
+        )
+
+    assert response.status_code == 504
+
+
+def test_create_full_correction_rejects_oversized_source(correction_client) -> None:
+    from app.api.corrections import get_settings
+
+    client, analysis_id, app = correction_client
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None,
+        llm_provider="fake",
+        correction_max_source_bytes=10,
+    )
+    try:
+        response = client.post(
+            "/corrections",
+            json=_body(analysis_id, mode="full", issue=None),
+        )
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+    assert response.status_code == 413
+
+
+# --------------------------------------------------- Fase D2a: lote (batch)
+def _batch_file(
+    path: str,
+    source: str = BROKEN_PYTHON,
+    issues: list[dict] | None = None,
+) -> dict:
+    return {
+        "path": path,
+        "source_code": source,
+        "issues": issues
+        if issues is not None
+        else [
+            {
+                "message": "Python syntax error: expected ':'",
+                "severity": "critical",
+                "line": 1,
+                "code": "python_syntax",
+            }
+        ],
+    }
+
+
+def _batch_body(
+    analysis_id: str | None = None,
+    *,
+    files: list[dict] | None = None,
+    **overrides,
+) -> dict:
+    body = {
+        "analysis_id": analysis_id,
+        "files": files
+        if files is not None
+        else [_batch_file(f"src/f{index}.py") for index in range(3)],
+        "language": "python",
+    }
+    body.update(overrides)
+    return body
+
+
+def test_batch_three_files_returns_consolidated_results(correction_client) -> None:
+    client, analysis_id, _app = correction_client
+    files = [_batch_file(f"src/f{index}.py") for index in range(3)]
+
+    response = client.post(
+        "/corrections/batch",
+        json=_batch_body(analysis_id, files=files),
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["files_total"] == 3
+    assert data["files_completed"] == 3
+    assert data["files_failed"] == 0
+    assert data["files_skipped"] == 0
+    assert data["partial"] is False
+    assert data["budget_exceeded"] is False
+    assert data["issues_resolved_total"] == 3
+    assert data["issues_remaining_total"] == 0
+    assert data["issues_new_total"] == 0
+    assert [item["path"] for item in data["results"]] == [
+        "src/f0.py",
+        "src/f1.py",
+        "src/f2.py",
+    ]
+    assert all(item["status"] == "completed" for item in data["results"])
+    assert all(item["reason"] is None for item in data["results"])
+    ids = {item["correction"]["id"] for item in data["results"]}
+    assert len(ids) == 3
+    for item in data["results"]:
+        correction = item["correction"]
+        assert correction["file"] == item["path"]
+        assert correction["diff"].startswith(f"--- a/{item['path']}")
+        assert correction["status"] == "pending"
+
+    listing = client.get("/corrections", params={"analysis_id": analysis_id})
+    assert listing.status_code == 200
+    assert len(listing.json()) == 3
+
+
+def test_batch_accepts_exactly_the_configured_maximum(correction_client) -> None:
+    client, _analysis_id, _app = correction_client
+    files = [_batch_file(f"src/f{index}.py") for index in range(3)]
+
+    response = client.post("/corrections/batch", json=_batch_body(files=files))
+
+    assert response.status_code == 200, response.text
+
+
+def test_batch_rejects_more_than_the_configured_maximum(correction_client) -> None:
+    client, _analysis_id, _app = correction_client
+    files = [_batch_file(f"src/f{index}.py") for index in range(4)]
+
+    response = client.post("/corrections/batch", json=_batch_body(files=files))
+
+    assert response.status_code == 422
+    assert "Too many files" in response.json()["detail"]
+
+
+def test_batch_rejects_an_empty_file_list(correction_client) -> None:
+    client, _analysis_id, _app = correction_client
+
+    response = client.post("/corrections/batch", json=_batch_body(files=[]))
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["../etc/passwd", "/etc/passwd", "src/bad\x00name.py", "C:\\repo\\app.py"],
+)
+def test_batch_rejects_unsafe_paths(correction_client, path: str) -> None:
+    client, _analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections/batch",
+        json=_batch_body(files=[_batch_file(path)]),
+    )
+
+    assert response.status_code == 422, response.text
+
+
+def test_batch_rejects_an_unsupported_extension(correction_client) -> None:
+    client, _analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections/batch",
+        json=_batch_body(files=[_batch_file("src/program.rb")]),
+    )
+
+    assert response.status_code == 422
+    assert "Unsupported file type" in response.json()["detail"]
+
+
+def test_batch_rejects_an_unknown_language(correction_client) -> None:
+    client, _analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections/batch",
+        json=_batch_body(
+            files=[_batch_file("src/f0.py")],
+            language="cobol",
+        ),
+    )
+
+    assert response.status_code == 422
+
+
+def test_batch_rejects_a_foreign_analysis(correction_client) -> None:
+    client, _analysis_id, _app = correction_client
+
+    response = client.post(
+        "/corrections/batch",
+        json=_batch_body(str(uuid4()), files=[_batch_file("src/f0.py")]),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Analysis not found"
+
+
+def test_batch_rejects_an_analysis_reference_without_authentication(
+    correction_client,
+) -> None:
+    _client, analysis_id, app = correction_client
+
+    with TestClient(app) as anonymous:
+        response = anonymous.post(
+            "/corrections/batch",
+            json=_batch_body(analysis_id, files=[_batch_file("src/f0.py")]),
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Analysis not found"
+
+
+def test_batch_is_unavailable_without_a_configured_provider(
+    correction_client,
+) -> None:
+    from app.api.corrections import get_correction_llm, get_settings
+
+    client, _analysis_id, app = correction_client
+    app.dependency_overrides.pop(get_correction_llm, None)
+
+    def fake_settings() -> Settings:
+        return Settings(
+            _env_file=None,
+            llm_provider="fake",
+            correction_fake_provider_enabled=False,
+        )
+
+    app.dependency_overrides[get_settings] = fake_settings
+    try:
+        response = client.post(
+            "/corrections/batch",
+            json=_batch_body(files=[_batch_file("src/f0.py")]),
+        )
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+        app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+            FakeLLMProvider(response=_payload())
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "AI correction is not configured on this server."
+
+
+def test_batch_sensitive_file_fails_without_aborting_the_other_files(
+    correction_client,
+) -> None:
+    client, _analysis_id, _app = correction_client
+    files = [
+        {"path": ".env", "source_code": "TOKEN=do-not-send\n", "issues": []},
+        _batch_file("src/f0.py"),
+    ]
+
+    response = client.post("/corrections/batch", json=_batch_body(files=files))
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["files_completed"] == 1
+    assert data["files_failed"] == 1
+    assert data["partial"] is True
+    sensitive = data["results"][0]
+    assert sensitive["status"] == "failed"
+    assert sensitive["reason"] == "sensitive_file"
+    assert sensitive["error_status"] == 422
+    assert "do-not-send" not in (sensitive["error_detail"] or "")
+    assert data["results"][1]["status"] == "completed"
+
+
+def test_batch_oversized_file_fails_alone(correction_client) -> None:
+    from app.api.corrections import get_settings
+
+    client, _analysis_id, app = correction_client
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None,
+        llm_provider="fake",
+        correction_max_source_bytes=30,
+    )
+    try:
+        response = client.post(
+            "/corrections/batch",
+            json=_batch_body(
+                files=[_batch_file("src/large.py", "x = 1\n" * 8)]
+            ),
+        )
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["files_failed"] == 1
+    assert data["files_completed"] == 0
+    assert data["results"][0]["reason"] == "source_too_large"
+    assert data["results"][0]["error_status"] == 413
+
+
+def test_single_and_full_routes_still_work_with_the_batch_route(
+    correction_client,
+) -> None:
+    client, analysis_id, _app = correction_client
+
+    single = client.post("/corrections", json=_body(analysis_id))
+    assert single.status_code == 201
+
+    full = client.post(
+        "/corrections",
+        json=_body(analysis_id, mode="full", issue=None),
+    )
+    assert full.status_code == 201
+
+
+def test_create_full_correction_rejects_an_oversized_explanation(
+    correction_client,
+) -> None:
+    from app.api.corrections import get_correction_llm, get_settings
+    from app.llm.fake import FakeLLMProvider
+    from app.services.llm_service import LLMService
+
+    client, analysis_id, app = correction_client
+    app.dependency_overrides[get_correction_llm] = lambda: LLMService(
+        FakeLLMProvider(response=_payload(FIXED_PYTHON, "x" * 100))
+    )
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None,
+        llm_provider="fake",
+        correction_max_explanation_bytes=10,
+    )
+    try:
+        response = client.post(
+            "/corrections",
+            json=_body(analysis_id, mode="full", issue=None),
+        )
     finally:
         app.dependency_overrides.pop(get_settings, None)
         app.dependency_overrides[get_correction_llm] = lambda: LLMService(
